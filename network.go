@@ -22,6 +22,8 @@ type TCPNetwork struct {
 	connIdForClient int
 	connsForServer  map[int]*Connection
 	connsForClient  map[int]*Connection
+	shutdown        bool
+	readTimeoutSec  int
 }
 
 func NewTCPNetwork(eventQueueSize int, sp IStreamProtocol) *TCPNetwork {
@@ -30,6 +32,7 @@ func NewTCPNetwork(eventQueueSize int, sp IStreamProtocol) *TCPNetwork {
 	s.streamProtocol = sp
 	s.connsForServer = make(map[int]*Connection)
 	s.connsForClient = make(map[int]*Connection)
+	s.shutdown = false
 	//	default config
 	s.Conf.SendBufferSize = kServerConf_SendBufferSize
 	return s
@@ -86,15 +89,43 @@ func (this *TCPNetwork) SetStreamProtocol(sp IStreamProtocol) {
 	this.streamProtocol = sp
 }
 
+func (this *TCPNetwork) GetReadTimeoutSec() int {
+	return this.readTimeoutSec
+}
+
+func (this *TCPNetwork) SetReadTimeoutSec(sec int) {
+	this.readTimeoutSec = sec
+}
+
+func (this *TCPNetwork) DisconnectAllConnectionsServer() {
+	for k, c := range this.connsForServer {
+		c.Close()
+		delete(this.connsForServer, k)
+	}
+}
+
+func (this *TCPNetwork) DisconnectAllConnectionsClient() {
+	for k, c := range this.connsForClient {
+		c.Close()
+		delete(this.connsForClient, k)
+	}
+}
+
 func (this *TCPNetwork) Shutdown() {
-	if nil == this.listener {
+	if this.shutdown {
 		return
 	}
+	this.shutdown = true
 
 	//	stop accept routine
-	this.listener.Close()
+	if nil != this.listener {
+		this.listener.Close()
+		this.listener = nil
+	}
 
 	//	close all connections
+	this.DisconnectAllConnectionsClient()
+	this.DisconnectAllConnectionsServer()
 }
 
 func (this *TCPNetwork) createConn(c net.Conn) *Connection {
@@ -114,6 +145,17 @@ func (this *TCPNetwork) ServeWithHandler(handler IEventHandler) {
 				}
 
 				this.handleEvent(evt, handler)
+
+				//	terminate?
+				if this.shutdown {
+					//	shutdown?
+					if len(this.connsForClient) == 0 &&
+						len(this.connsForServer) == 0 {
+						//	terminate
+						this.shutdown = false
+						return
+					}
+				}
 			}
 		}
 	}
@@ -129,6 +171,7 @@ func (this *TCPNetwork) acceptRoutine() {
 
 		//	process conn event
 		connection := this.createConn(conn)
+		connection.SetReadTimeoutSec(this.readTimeoutSec)
 		connection.from = 0
 		connection.run()
 	}

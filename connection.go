@@ -37,6 +37,7 @@ type Connection struct {
 	maxReadBufferLength int
 	userdata            interface{}
 	from                int
+	readTimeoutSec      int
 }
 
 func newConnection(c net.Conn, sendBufferSize int, eq IEventQueue) *Connection {
@@ -124,6 +125,14 @@ func (this *Connection) GetUserdata() interface{} {
 
 func (this *Connection) SetUserdata(ud interface{}) {
 	this.userdata = ud
+}
+
+func (this *Connection) SetReadTimeoutSec(sec int) {
+	this.readTimeoutSec = sec
+}
+
+func (this *Connection) GetReadTimeoutSec() int {
+	return this.readTimeoutSec
 }
 
 func (this *Connection) setStreamProtocol(sp IStreamProtocol) {
@@ -277,6 +286,9 @@ func (this *Connection) routineRead() error {
 
 func (this *Connection) unpack(buf []byte) ([]byte, error) {
 	//	read head
+	if 0 != this.readTimeoutSec {
+		this.conn.SetReadDeadline(time.Now().Add(time.Duration(this.readTimeoutSec) * time.Second))
+	}
 	headBuf := buf[:this.streamProtocol.GetHeaderLength()]
 	_, err := this.conn.Read(headBuf)
 	if err != nil {
@@ -291,6 +303,9 @@ func (this *Connection) unpack(buf []byte) ([]byte, error) {
 	}
 
 	//	read body
+	if 0 != this.readTimeoutSec {
+		this.conn.SetReadDeadline(time.Now().Add(time.Duration(this.readTimeoutSec) * time.Second))
+	}
 	bodyLength := packetLength - this.streamProtocol.GetHeaderLength()
 	_, err = this.conn.Read(buf[:bodyLength])
 	if err != nil {
@@ -300,6 +315,9 @@ func (this *Connection) unpack(buf []byte) ([]byte, error) {
 	//	ok
 	msg := make([]byte, bodyLength)
 	copy(msg, buf[:bodyLength])
+	if 0 != this.readTimeoutSec {
+		this.conn.SetReadDeadline(time.Time{})
+	}
 
 	return msg, nil
 }
