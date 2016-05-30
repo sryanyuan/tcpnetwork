@@ -179,7 +179,7 @@ func (this *TCPNetwork) acceptRoutine() {
 
 func (this *TCPNetwork) handleEvent(evt *ConnEvent, handler IEventHandler) {
 	switch evt.EventType {
-	case kConnEvent_Connected:
+	case KConnEvent_Connected:
 		{
 			//	add to connection map
 			connId := 0
@@ -196,7 +196,7 @@ func (this *TCPNetwork) handleEvent(evt *ConnEvent, handler IEventHandler) {
 
 			handler.OnConnected(evt)
 		}
-	case kConnEvent_Disconnected:
+	case KConnEvent_Disconnected:
 		{
 			handler.OnDisconnected(evt)
 
@@ -207,7 +207,7 @@ func (this *TCPNetwork) handleEvent(evt *ConnEvent, handler IEventHandler) {
 				delete(this.connsForClient, evt.Conn.connId)
 			}
 		}
-	case kConnEvent_Data:
+	case KConnEvent_Data:
 		{
 			handler.OnRecv(evt)
 		}

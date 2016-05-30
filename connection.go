@@ -14,16 +14,20 @@ const (
 )
 
 const (
-	kConnEvent_None = iota
-	kConnEvent_Connected
-	kConnEvent_Disconnected
-	kConnEvent_Data
-	kConnEvent_Close
+	KConnEvent_None = iota
+	KConnEvent_Connected
+	KConnEvent_Disconnected
+	KConnEvent_Data
+	KConnEvent_Close
 )
 
 const (
 	kConnConf_DefaultSendTimeoutSec = 5
 	kConnConf_MaxReadBufferLength   = 0xffff // 0xffff
+)
+
+const (
+	KConnFlag_CopySendBuffer = 1 << iota
 )
 
 type Connection struct {
@@ -158,13 +162,15 @@ func (this *Connection) sendRaw(msg []byte) {
 	}
 }
 
-func (this *Connection) Send(msg []byte, cpy bool) {
+func (this *Connection) Send(msg []byte, flag int64) {
 	if this.status != kConnStatus_Connected {
 		return
 	}
 
 	buf := msg
-	if cpy {
+
+	//	copy send buffer
+	if 0 != flag&KConnFlag_CopySendBuffer {
 		msgCopy := make([]byte, len(msg))
 		copy(msgCopy, msg)
 		buf = msgCopy
@@ -206,7 +212,7 @@ func (this *Connection) routineMain() {
 		this.sendMsgQueue = nil
 
 		//	post event
-		this.pushEvent(kConnEvent_Disconnected, nil)
+		this.pushEvent(KConnEvent_Disconnected, nil)
 	}()
 
 	if nil == this.streamProtocol {
@@ -216,7 +222,7 @@ func (this *Connection) routineMain() {
 	this.streamProtocol.Init()
 
 	//	connected
-	this.pushEvent(kConnEvent_Connected, nil)
+	this.pushEvent(KConnEvent_Connected, nil)
 	this.status = kConnStatus_Connected
 
 	go this.routineSend()
@@ -253,6 +259,10 @@ func (this *Connection) routineSend() error {
 						log.Println("Conn write error:", err)
 						return err
 					}
+				} else {
+					//	invalid packet
+					log.Println("Failed to serialize header")
+					break
 				}
 
 				_, err = this.conn.Write(evt)
@@ -278,7 +288,7 @@ func (this *Connection) routineRead() error {
 			return err
 		}
 
-		this.pushEvent(kConnEvent_Data, msg)
+		this.pushEvent(KConnEvent_Data, msg)
 	}
 
 	return nil
