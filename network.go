@@ -56,6 +56,10 @@ func (this *TCPNetwork) Pop() *ConnEvent {
 	return evt
 }
 
+func (this *TCPNetwork) GetEventQueue() <-chan *ConnEvent {
+	return this.eventQueue
+}
+
 func (this *TCPNetwork) Listen(addr string) error {
 	ls, err := net.Listen("tcp", addr)
 	if nil != err {
