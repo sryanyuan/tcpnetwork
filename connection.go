@@ -60,6 +60,7 @@ type ConnEvent struct {
 	EventType int
 	Conn      *Connection
 	Data      []byte
+	Userdata  interface{}
 }
 
 func newConnEvent(et int, c *Connection, d []byte) *ConnEvent {
@@ -97,6 +98,8 @@ func (this *Connection) Close() {
 			log.Printf("Con[%d] send message timeout, close it", this.connId)
 		}
 	}
+
+	this.status = kConnStatus_Disconnected
 }
 
 func (this *Connection) pushEvent(et int, d []byte) {
@@ -137,6 +140,10 @@ func (this *Connection) SetReadTimeoutSec(sec int) {
 
 func (this *Connection) GetReadTimeoutSec() int {
 	return this.readTimeoutSec
+}
+
+func (this *Connection) GetRemoteAddress() string {
+	return this.conn.RemoteAddr().String()
 }
 
 func (this *Connection) setStreamProtocol(sp IStreamProtocol) {
@@ -288,7 +295,10 @@ func (this *Connection) routineRead() error {
 			return err
 		}
 
-		this.pushEvent(KConnEvent_Data, msg)
+		if this.status == kConnStatus_Connected {
+			//	only push event when the connection is connected
+			this.pushEvent(KConnEvent_Data, msg)
+		}
 	}
 
 	return nil
