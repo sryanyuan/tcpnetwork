@@ -72,17 +72,17 @@ func (this *TCPNetwork) Listen(addr string) error {
 	return nil
 }
 
-func (this *TCPNetwork) Connect(addr string) error {
+func (this *TCPNetwork) Connect(addr string) (*Connection, error) {
 	conn, err := net.Dial("tcp", addr)
 	if nil != err {
-		return err
+		return nil, err
 	}
 
 	connection := this.createConn(conn)
 	connection.from = 1
 	connection.run()
 
-	return nil
+	return connection, nil
 }
 
 func (this *TCPNetwork) GetStreamProtocol() IStreamProtocol {

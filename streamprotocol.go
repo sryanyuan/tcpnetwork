@@ -10,7 +10,7 @@ const (
 	kStreamProtocol2HeaderLength = 2
 )
 
-func getStreamMaxLength(headerBytes uint32) int {
+func getStreamMaxLength(headerBytes uint32) uint64 {
 	return 1<<(8*headerBytes) - 1
 }
 
@@ -43,7 +43,7 @@ func (this *StreamProtocol4) UnserializeHeader(buf []byte) int {
 }
 
 func (this *StreamProtocol4) SerializeHeader(body []byte) []byte {
-	if len(body)+kStreamProtocol4HeaderLength > getStreamMaxLength(kStreamProtocol4HeaderLength) {
+	if uint64(len(body)+kStreamProtocol4HeaderLength) > uint64(getStreamMaxLength(kStreamProtocol4HeaderLength)) {
 		//	stream is too long
 		return nil
 	}
@@ -81,7 +81,7 @@ func (this *StreamProtocol2) UnserializeHeader(buf []byte) int {
 }
 
 func (this *StreamProtocol2) SerializeHeader(body []byte) []byte {
-	if len(body)+kStreamProtocol2HeaderLength > getStreamMaxLength(kStreamProtocol2HeaderLength) {
+	if uint64(len(body)+kStreamProtocol2HeaderLength) > uint64(getStreamMaxLength(kStreamProtocol2HeaderLength)) {
 		//	stream is too long
 		return nil
 	}

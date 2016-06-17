@@ -19,6 +19,7 @@ const (
 	KConnEvent_Disconnected
 	KConnEvent_Data
 	KConnEvent_Close
+	KConnEvent_Total
 )
 
 const (
