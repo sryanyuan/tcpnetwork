@@ -5,6 +5,8 @@ import (
 	"log"
 	"net"
 	"time"
+
+	"github.com/golang/protobuf/proto"
 )
 
 const (
@@ -18,6 +20,7 @@ const (
 	KConnEvent_Connected
 	KConnEvent_Disconnected
 	KConnEvent_Data
+	KConnEvent_Pb
 	KConnEvent_Close
 	KConnEvent_Total
 )
@@ -62,6 +65,7 @@ type ConnEvent struct {
 	Conn      *Connection
 	Data      []byte
 	Userdata  interface{}
+	PbM       proto.Message
 }
 
 func newConnEvent(et int, c *Connection, d []byte) *ConnEvent {
@@ -96,7 +100,6 @@ func (this *Connection) Close() {
 		{
 			//	timeout, close the connection
 			this.close()
-			log.Printf("Con[%d] send message timeout, close it", this.connId)
 		}
 	}
 
@@ -105,10 +108,22 @@ func (this *Connection) Close() {
 
 func (this *Connection) pushEvent(et int, d []byte) {
 	if nil == this.eventQueue {
-		log.Println("Nil event queue")
+		panic("Nil event queue")
 		return
 	}
 	this.eventQueue.Push(newConnEvent(et, this, d))
+}
+
+func (this *Connection) pushPbEvent(pb proto.Message) {
+	if nil == this.eventQueue {
+		panic("Nil event queue")
+		return
+	}
+	this.eventQueue.Push(&ConnEvent{
+		EventType: KConnEvent_Data,
+		Conn:      this,
+		PbM:       pb,
+	})
 }
 
 func (this *Connection) GetStatus() int {
@@ -151,9 +166,9 @@ func (this *Connection) setStreamProtocol(sp IStreamProtocol) {
 	this.streamProtocol = sp
 }
 
-func (this *Connection) sendRaw(msg []byte) {
+func (this *Connection) sendRaw(msg []byte) error {
 	if this.status != kConnStatus_Connected {
-		return
+		return ErrConnIsClosed
 	}
 
 	select {
@@ -165,14 +180,17 @@ func (this *Connection) sendRaw(msg []byte) {
 		{
 			//	timeout, close the connection
 			this.close()
-			log.Printf("Con[%d] send message timeout, close it", this.connId)
+			return ErrConnSendTimeout
 		}
 	}
+
+	return nil
 }
 
-func (this *Connection) Send(msg []byte, flag int64) {
+//	send bytes
+func (this *Connection) Send(msg []byte, flag int64) error {
 	if this.status != kConnStatus_Connected {
-		return
+		return ErrConnIsClosed
 	}
 
 	buf := msg
@@ -184,18 +202,24 @@ func (this *Connection) Send(msg []byte, flag int64) {
 		buf = msgCopy
 	}
 
-	select {
-	case this.sendMsgQueue <- buf:
-		{
-			//	nothing
-		}
-	case <-time.After(time.Duration(this.sendTimeoutSec)):
-		{
-			//	timeout, close the connection
-			this.close()
-			log.Printf("Con[%d] send message timeout, close it", this.connId)
-		}
+	return this.sendRaw(buf)
+}
+
+//	send protocol buffer message
+func (this *Connection) SendPb(pb proto.Message) error {
+	if this.status != kConnStatus_Connected {
+		return ErrConnIsClosed
 	}
+
+	var data []byte
+	var err error
+
+	if data, err = proto.Marshal(pb); nil != err {
+		return err
+	}
+
+	//	send protobuf
+	return this.sendRaw(data)
 }
 
 //	run a routine to process the connection
@@ -206,7 +230,6 @@ func (this *Connection) run() {
 func (this *Connection) routineMain() {
 	defer func() {
 		//	routine end
-		log.Printf("Routine of connection[%d] quit", this.connId)
 		e := recover()
 		if e != nil {
 			log.Println("Panic:", e)
@@ -224,7 +247,7 @@ func (this *Connection) routineMain() {
 	}()
 
 	if nil == this.streamProtocol {
-		log.Println("Nil stream protocol")
+		panic("Nil stream protocol")
 		return
 	}
 	this.streamProtocol.Init()
@@ -238,10 +261,6 @@ func (this *Connection) routineMain() {
 }
 
 func (this *Connection) routineSend() error {
-	defer func() {
-		log.Println("Connection", this.connId, " send loop return")
-	}()
-
 	for {
 		select {
 		case evt, ok := <-this.sendMsgQueue:
@@ -252,7 +271,6 @@ func (this *Connection) routineSend() error {
 				}
 
 				if nil == evt {
-					log.Println("User disconnect")
 					this.close()
 					return nil
 				}
@@ -264,18 +282,16 @@ func (this *Connection) routineSend() error {
 					//	write header first
 					_, err = this.conn.Write(headerBytes)
 					if err != nil {
-						log.Println("Conn write error:", err)
 						return err
 					}
 				} else {
 					//	invalid packet
-					log.Println("Failed to serialize header")
+					panic("Failed to serialize header")
 					break
 				}
 
 				_, err = this.conn.Write(evt)
 				if err != nil {
-					log.Println("Conn write error:", err)
 					return err
 				}
 			}
@@ -292,13 +308,18 @@ func (this *Connection) routineRead() error {
 	for {
 		msg, err := this.unpack(buf)
 		if err != nil {
-			log.Println("Conn read error:", err)
 			return err
 		}
 
+		//	only push event when the connection is connected
 		if this.status == kConnStatus_Connected {
-			//	only push event when the connection is connected
-			this.pushEvent(KConnEvent_Data, msg)
+			//	try to unserialize to pb. do it in each routine to reduce the pressure of worker routine
+			pb := unserializePb(msg)
+			if nil != pb {
+				this.pushPbEvent(pb)
+			} else {
+				this.pushEvent(KConnEvent_Data, msg)
+			}
 		}
 	}
 
