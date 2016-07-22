@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/golang/protobuf/proto"
@@ -36,7 +37,7 @@ const (
 
 type Connection struct {
 	conn                net.Conn
-	status              int
+	status              int32
 	connId              int
 	sendMsgQueue        chan []byte
 	sendTimeoutSec      int
@@ -46,6 +47,7 @@ type Connection struct {
 	userdata            interface{}
 	from                int
 	readTimeoutSec      int
+	fnSyncExecute       FuncSyncExecute
 }
 
 func newConnection(c net.Conn, sendBufferSize int, eq IEventQueue) *Connection {
@@ -82,8 +84,10 @@ func (this *Connection) close() {
 		return
 	}
 
+	//	set the disconnected status, use atomic operation
+	//this.status = kConnStatus_Disconnected
+	atomic.StoreInt32(&this.status, kConnStatus_Disconnected)
 	this.conn.Close()
-	this.status = kConnStatus_Disconnected
 }
 
 func (this *Connection) Close() {
@@ -103,15 +107,31 @@ func (this *Connection) Close() {
 		}
 	}
 
-	this.status = kConnStatus_Disconnected
+	//	set the disconnected status, use atomic operation
+	//this.status = kConnStatus_Disconnected
+	atomic.StoreInt32(&this.status, kConnStatus_Disconnected)
+}
+
+func (this *Connection) syncExecuteEvent(evt *ConnEvent) bool {
+	if nil == this.fnSyncExecute {
+		return false
+	}
+
+	return this.fnSyncExecute(evt)
 }
 
 func (this *Connection) pushEvent(et int, d []byte) {
+	//	this is for sync execute
+	evt := newConnEvent(et, this, d)
+	if this.syncExecuteEvent(evt) {
+		return
+	}
+
 	if nil == this.eventQueue {
 		panic("Nil event queue")
 		return
 	}
-	this.eventQueue.Push(newConnEvent(et, this, d))
+	this.eventQueue.Push(evt)
 }
 
 func (this *Connection) pushPbEvent(pb proto.Message) {
@@ -126,12 +146,18 @@ func (this *Connection) pushPbEvent(pb proto.Message) {
 	})
 }
 
-func (this *Connection) GetStatus() int {
+func (this *Connection) SetSyncExecuteFunc(fn FuncSyncExecute) FuncSyncExecute {
+	prevFn := this.fnSyncExecute
+	this.fnSyncExecute = fn
+	return prevFn
+}
+
+func (this *Connection) GetStatus() int32 {
 	return this.status
 }
 
 func (this *Connection) setStatus(stat int) {
-	this.status = stat
+	this.status = int32(stat)
 }
 
 func (this *Connection) GetConnId() int {
@@ -160,6 +186,10 @@ func (this *Connection) GetReadTimeoutSec() int {
 
 func (this *Connection) GetRemoteAddress() string {
 	return this.conn.RemoteAddr().String()
+}
+
+func (this *Connection) GetLocalAddress() string {
+	return this.conn.LocalAddr().String()
 }
 
 func (this *Connection) setStreamProtocol(sp IStreamProtocol) {
@@ -261,6 +291,15 @@ func (this *Connection) routineMain() {
 }
 
 func (this *Connection) routineSend() error {
+	defer func() {
+		e := recover()
+		if nil != e {
+			//	panic, close the connection
+			log.Println("Panic:", e)
+			this.close()
+		}
+	}()
+
 	for {
 		select {
 		case evt, ok := <-this.sendMsgQueue:
