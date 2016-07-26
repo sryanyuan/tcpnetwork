@@ -112,6 +112,14 @@ func (this *Connection) Close() {
 	atomic.StoreInt32(&this.status, kConnStatus_Disconnected)
 }
 
+//	When don't need conection to send any thing, free it, DO NOT call it on multi routines
+func (this *Connection) Free() {
+	if nil != this.sendMsgQueue {
+		close(this.sendMsgQueue)
+		this.sendMsgQueue = nil
+	}
+}
+
 func (this *Connection) syncExecuteEvent(evt *ConnEvent) bool {
 	if nil == this.fnSyncExecute {
 		return false
@@ -269,8 +277,9 @@ func (this *Connection) routineMain() {
 		this.close()
 
 		//	free channel
-		close(this.sendMsgQueue)
-		this.sendMsgQueue = nil
+		//	FIXED : consumers need free it, not producer
+		//close(this.sendMsgQueue)
+		//this.sendMsgQueue = nil
 
 		//	post event
 		this.pushEvent(KConnEvent_Disconnected, nil)
