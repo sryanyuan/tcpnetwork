@@ -177,6 +177,10 @@ func (this *Connection) SetConnId(id int) {
 	this.connId = id
 }
 
+func (this *Connection) GetConn() net.Conn {
+	return this.conn
+}
+
 func (this *Connection) GetUserdata() interface{} {
 	return this.userdata
 }
@@ -232,6 +236,16 @@ func (this *Connection) sendRaw(msg []byte) error {
 	}
 
 	return nil
+}
+
+func (this *Connection) ApplyReadDeadline() {
+	if 0 != this.readTimeoutSec {
+		this.conn.SetReadDeadline(time.Now().Add(time.Duration(this.readTimeoutSec) * time.Second))
+	}
+}
+
+func (this *Connection) ResetReadDeadline() {
+	this.conn.SetReadDeadline(time.Time{})
 }
 
 //	send bytes
@@ -368,7 +382,7 @@ func (this *Connection) routineRead() error {
 		if nil == this.unpacker {
 			msg, err = this.unpack(buf)
 		} else {
-			msg, err = this.unpacker.Unpack(this.conn, buf)
+			msg, err = this.unpacker.Unpack(this, buf)
 		}
 		if err != nil {
 			return err
