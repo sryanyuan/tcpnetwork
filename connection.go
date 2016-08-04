@@ -368,7 +368,7 @@ func (this *Connection) routineRead() error {
 		if nil == this.unpacker {
 			msg, err = this.unpack(buf)
 		} else {
-			msg, err = this.unpacker.Unpack(this, buf)
+			msg, err = this.unpacker.Unpack(this.conn, buf)
 		}
 		if err != nil {
 			return err

@@ -1,5 +1,9 @@
 package tcpnetwork
 
+import (
+	"net"
+)
+
 type IEventQueue interface {
 	Push(*ConnEvent)
 	Pop() *ConnEvent
@@ -23,5 +27,5 @@ type IEventHandler interface {
 }
 
 type IUnpacker interface {
-	Unpack(*Connection, []byte) ([]byte, error)
+	Unpack(net.Conn, []byte) ([]byte, error)
 }
