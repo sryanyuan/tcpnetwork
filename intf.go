@@ -21,3 +21,7 @@ type IEventHandler interface {
 	OnDisconnected(evt *ConnEvent)
 	OnRecv(evt *ConnEvent)
 }
+
+type IUnpacker interface {
+	Unpack(*Connection, []byte) ([]byte, error)
+}

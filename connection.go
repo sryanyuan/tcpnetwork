@@ -48,6 +48,7 @@ type Connection struct {
 	from                int
 	readTimeoutSec      int
 	fnSyncExecute       FuncSyncExecute
+	unpacker            IUnpacker
 }
 
 func newConnection(c net.Conn, sendBufferSize int, eq IEventQueue) *Connection {
@@ -198,6 +199,14 @@ func (this *Connection) GetRemoteAddress() string {
 
 func (this *Connection) GetLocalAddress() string {
 	return this.conn.LocalAddr().String()
+}
+
+func (this *Connection) SetUnpacker(unpacker IUnpacker) {
+	this.unpacker = unpacker
+}
+
+func (this *Connection) GetUnpacker() IUnpacker {
+	return this.unpacker
 }
 
 func (this *Connection) setStreamProtocol(sp IStreamProtocol) {
@@ -352,9 +361,15 @@ func (this *Connection) routineSend() error {
 func (this *Connection) routineRead() error {
 	//	default buffer
 	buf := make([]byte, this.maxReadBufferLength)
+	var msg []byte
+	var err error
 
 	for {
-		msg, err := this.unpack(buf)
+		if nil == this.unpacker {
+			msg, err = this.unpack(buf)
+		} else {
+			msg, err = this.unpacker.Unpack(this, buf)
+		}
 		if err != nil {
 			return err
 		}
