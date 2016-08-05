@@ -3,6 +3,7 @@ package tcpnetwork
 import (
 	"log"
 	"net"
+	"time"
 )
 
 const (
@@ -42,14 +43,25 @@ func (this *TCPNetwork) Push(evt *ConnEvent) {
 	if nil == this.eventQueue {
 		return
 	}
-	this.eventQueue <- evt
+
+	//	push timeout
+	select {
+	case this.eventQueue <- evt:
+		{
+
+		}
+	case <-time.After(time.Second * 5):
+		{
+			evt.Conn.close()
+		}
+	}
+
 }
 
 func (this *TCPNetwork) Pop() *ConnEvent {
 	evt, ok := <-this.eventQueue
 	if !ok {
 		//	event queue already closed
-		this.eventQueue = nil
 		return nil
 	}
 
