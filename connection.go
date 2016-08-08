@@ -49,6 +49,7 @@ type Connection struct {
 	readTimeoutSec      int
 	fnSyncExecute       FuncSyncExecute
 	unpacker            IUnpacker
+	disableSend         int32
 }
 
 func newConnection(c net.Conn, sendBufferSize int, eq IEventQueue) *Connection {
@@ -81,14 +82,10 @@ func newConnEvent(et int, c *Connection, d []byte) *ConnEvent {
 
 //	directly close, packages in queue will not be sent
 func (this *Connection) close() {
-	if kConnStatus_Connected != this.status {
-		return
+	//	set the disconnected status, use atomic operation to avoid close twice
+	if atomic.CompareAndSwapInt32(&this.status, kConnStatus_Connected, kConnStatus_Disconnected) {
+		this.conn.Close()
 	}
-
-	//	set the disconnected status, use atomic operation
-	//this.status = kConnStatus_Disconnected
-	atomic.StoreInt32(&this.status, kConnStatus_Disconnected)
-	this.conn.Close()
 }
 
 func (this *Connection) Close() {
@@ -108,9 +105,8 @@ func (this *Connection) Close() {
 		}
 	}
 
-	//	set the disconnected status, use atomic operation
-	//this.status = kConnStatus_Disconnected
-	atomic.StoreInt32(&this.status, kConnStatus_Disconnected)
+	//	disable send
+	atomic.StoreInt32(&this.disableSend, 1)
 }
 
 //	When don't need conection to send any thing, free it, DO NOT call it on multi routines
@@ -218,7 +214,10 @@ func (this *Connection) setStreamProtocol(sp IStreamProtocol) {
 }
 
 func (this *Connection) sendRaw(msg []byte) error {
-	if this.status != kConnStatus_Connected {
+	if atomic.LoadInt32(&this.disableSend) != 0 {
+		return ErrConnIsClosed
+	}
+	if atomic.LoadInt32(&this.status) != kConnStatus_Connected {
 		return ErrConnIsClosed
 	}
 
@@ -250,10 +249,6 @@ func (this *Connection) ResetReadDeadline() {
 
 //	send bytes
 func (this *Connection) Send(msg []byte, flag int64) error {
-	if this.status != kConnStatus_Connected {
-		return ErrConnIsClosed
-	}
-
 	buf := msg
 
 	//	copy send buffer
@@ -268,10 +263,6 @@ func (this *Connection) Send(msg []byte, flag int64) error {
 
 //	send protocol buffer message
 func (this *Connection) SendPb(pb proto.Message) error {
-	if this.status != kConnStatus_Connected {
-		return ErrConnIsClosed
-	}
-
 	var data []byte
 	var err error
 
@@ -316,7 +307,7 @@ func (this *Connection) routineMain() {
 
 	//	connected
 	this.pushEvent(KConnEvent_Connected, nil)
-	this.status = kConnStatus_Connected
+	atomic.StoreInt32(&this.status, kConnStatus_Connected)
 
 	go this.routineSend()
 	this.routineRead()
@@ -326,9 +317,8 @@ func (this *Connection) routineSend() error {
 	defer func() {
 		e := recover()
 		if nil != e {
-			//	panic, close the connection
+			//	panic
 			log.Println("Panic:", e)
-			this.close()
 		}
 	}()
 
