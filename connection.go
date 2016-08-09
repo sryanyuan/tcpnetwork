@@ -50,6 +50,8 @@ type Connection struct {
 	fnSyncExecute       FuncSyncExecute
 	unpacker            IUnpacker
 	disableSend         int32
+	localAddr           string
+	remoteAddr          string
 }
 
 func newConnection(c net.Conn, sendBufferSize int, eq IEventQueue) *Connection {
@@ -78,6 +80,11 @@ func newConnEvent(et int, c *Connection, d []byte) *ConnEvent {
 		Conn:      c,
 		Data:      d,
 	}
+}
+
+func (this *Connection) init() {
+	this.localAddr = this.conn.LocalAddr().String()
+	this.remoteAddr = this.conn.RemoteAddr().String()
 }
 
 //	directly close, packages in queue will not be sent
@@ -194,11 +201,11 @@ func (this *Connection) GetReadTimeoutSec() int {
 }
 
 func (this *Connection) GetRemoteAddress() string {
-	return this.conn.RemoteAddr().String()
+	return this.remoteAddr
 }
 
 func (this *Connection) GetLocalAddress() string {
-	return this.conn.LocalAddr().String()
+	return this.localAddr
 }
 
 func (this *Connection) SetUnpacker(unpacker IUnpacker) {

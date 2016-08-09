@@ -93,6 +93,7 @@ func (this *TCPNetwork) Connect(addr string) (*Connection, error) {
 	connection := this.createConn(conn)
 	connection.from = 1
 	connection.run()
+	connection.init()
 
 	return connection, nil
 }
@@ -189,6 +190,7 @@ func (this *TCPNetwork) acceptRoutine() {
 		connection := this.createConn(conn)
 		connection.SetReadTimeoutSec(this.readTimeoutSec)
 		connection.from = 0
+		connection.init()
 		connection.run()
 	}
 }
