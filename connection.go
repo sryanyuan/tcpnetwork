@@ -2,7 +2,6 @@ package tcpnetwork
 
 import (
 	"errors"
-	"log"
 	"net"
 	"sync/atomic"
 	"time"
@@ -82,161 +81,161 @@ func newConnEvent(et int, c *Connection, d []byte) *ConnEvent {
 	}
 }
 
-func (this *Connection) init() {
-	this.localAddr = this.conn.LocalAddr().String()
-	this.remoteAddr = this.conn.RemoteAddr().String()
+func (c *Connection) init() {
+	c.localAddr = c.conn.LocalAddr().String()
+	c.remoteAddr = c.conn.RemoteAddr().String()
 }
 
 //	directly close, packages in queue will not be sent
-func (this *Connection) close() {
+func (c *Connection) close() {
 	//	set the disconnected status, use atomic operation to avoid close twice
-	if atomic.CompareAndSwapInt32(&this.status, kConnStatus_Connected, kConnStatus_Disconnected) {
-		this.conn.Close()
+	if atomic.CompareAndSwapInt32(&c.status, kConnStatus_Connected, kConnStatus_Disconnected) {
+		c.conn.Close()
 	}
 }
 
-func (this *Connection) Close() {
-	if this.status != kConnStatus_Connected {
+func (c *Connection) Close() {
+	if c.status != kConnStatus_Connected {
 		return
 	}
 
 	select {
-	case this.sendMsgQueue <- nil:
+	case c.sendMsgQueue <- nil:
 		{
 			//	nothing
 		}
-	case <-time.After(time.Duration(this.sendTimeoutSec)):
+	case <-time.After(time.Duration(c.sendTimeoutSec)):
 		{
 			//	timeout, close the connection
-			this.close()
+			c.close()
 		}
 	}
 
 	//	disable send
-	atomic.StoreInt32(&this.disableSend, 1)
+	atomic.StoreInt32(&c.disableSend, 1)
 }
 
 //	When don't need conection to send any thing, free it, DO NOT call it on multi routines
-func (this *Connection) Free() {
-	if nil != this.sendMsgQueue {
-		close(this.sendMsgQueue)
-		this.sendMsgQueue = nil
+func (c *Connection) Free() {
+	if nil != c.sendMsgQueue {
+		close(c.sendMsgQueue)
+		c.sendMsgQueue = nil
 	}
 }
 
-func (this *Connection) syncExecuteEvent(evt *ConnEvent) bool {
-	if nil == this.fnSyncExecute {
+func (c *Connection) syncExecuteEvent(evt *ConnEvent) bool {
+	if nil == c.fnSyncExecute {
 		return false
 	}
 
-	return this.fnSyncExecute(evt)
+	return c.fnSyncExecute(evt)
 }
 
-func (this *Connection) pushEvent(et int, d []byte) {
+func (c *Connection) pushEvent(et int, d []byte) {
 	//	this is for sync execute
-	evt := newConnEvent(et, this, d)
-	if this.syncExecuteEvent(evt) {
+	evt := newConnEvent(et, c, d)
+	if c.syncExecuteEvent(evt) {
 		return
 	}
 
-	if nil == this.eventQueue {
+	if nil == c.eventQueue {
 		panic("Nil event queue")
 		return
 	}
-	this.eventQueue.Push(evt)
+	c.eventQueue.Push(evt)
 }
 
-func (this *Connection) pushPbEvent(pb proto.Message) {
-	if nil == this.eventQueue {
+func (c *Connection) pushPbEvent(pb proto.Message) {
+	if nil == c.eventQueue {
 		panic("Nil event queue")
 		return
 	}
-	this.eventQueue.Push(&ConnEvent{
+	c.eventQueue.Push(&ConnEvent{
 		EventType: KConnEvent_Data,
-		Conn:      this,
+		Conn:      c,
 		PbM:       pb,
 	})
 }
 
-func (this *Connection) SetSyncExecuteFunc(fn FuncSyncExecute) FuncSyncExecute {
-	prevFn := this.fnSyncExecute
-	this.fnSyncExecute = fn
+func (c *Connection) SetSyncExecuteFunc(fn FuncSyncExecute) FuncSyncExecute {
+	prevFn := c.fnSyncExecute
+	c.fnSyncExecute = fn
 	return prevFn
 }
 
-func (this *Connection) GetStatus() int32 {
-	return this.status
+func (c *Connection) GetStatus() int32 {
+	return c.status
 }
 
-func (this *Connection) setStatus(stat int) {
-	this.status = int32(stat)
+func (c *Connection) setStatus(stat int) {
+	c.status = int32(stat)
 }
 
-func (this *Connection) GetConnId() int {
-	return this.connId
+func (c *Connection) GetConnId() int {
+	return c.connId
 }
 
-func (this *Connection) SetConnId(id int) {
-	this.connId = id
+func (c *Connection) SetConnId(id int) {
+	c.connId = id
 }
 
-func (this *Connection) GetConn() net.Conn {
-	return this.conn
+func (c *Connection) GetConn() net.Conn {
+	return c.conn
 }
 
-func (this *Connection) GetUserdata() interface{} {
-	return this.userdata
+func (c *Connection) GetUserdata() interface{} {
+	return c.userdata
 }
 
-func (this *Connection) SetUserdata(ud interface{}) {
-	this.userdata = ud
+func (c *Connection) SetUserdata(ud interface{}) {
+	c.userdata = ud
 }
 
-func (this *Connection) SetReadTimeoutSec(sec int) {
-	this.readTimeoutSec = sec
+func (c *Connection) SetReadTimeoutSec(sec int) {
+	c.readTimeoutSec = sec
 }
 
-func (this *Connection) GetReadTimeoutSec() int {
-	return this.readTimeoutSec
+func (c *Connection) GetReadTimeoutSec() int {
+	return c.readTimeoutSec
 }
 
-func (this *Connection) GetRemoteAddress() string {
-	return this.remoteAddr
+func (c *Connection) GetRemoteAddress() string {
+	return c.remoteAddr
 }
 
-func (this *Connection) GetLocalAddress() string {
-	return this.localAddr
+func (c *Connection) GetLocalAddress() string {
+	return c.localAddr
 }
 
-func (this *Connection) SetUnpacker(unpacker IUnpacker) {
-	this.unpacker = unpacker
+func (c *Connection) SetUnpacker(unpacker IUnpacker) {
+	c.unpacker = unpacker
 }
 
-func (this *Connection) GetUnpacker() IUnpacker {
-	return this.unpacker
+func (c *Connection) GetUnpacker() IUnpacker {
+	return c.unpacker
 }
 
-func (this *Connection) setStreamProtocol(sp IStreamProtocol) {
-	this.streamProtocol = sp
+func (c *Connection) setStreamProtocol(sp IStreamProtocol) {
+	c.streamProtocol = sp
 }
 
-func (this *Connection) sendRaw(msg []byte) error {
-	if atomic.LoadInt32(&this.disableSend) != 0 {
+func (c *Connection) sendRaw(msg []byte) error {
+	if atomic.LoadInt32(&c.disableSend) != 0 {
 		return ErrConnIsClosed
 	}
-	if atomic.LoadInt32(&this.status) != kConnStatus_Connected {
+	if atomic.LoadInt32(&c.status) != kConnStatus_Connected {
 		return ErrConnIsClosed
 	}
 
 	select {
-	case this.sendMsgQueue <- msg:
+	case c.sendMsgQueue <- msg:
 		{
 			//	nothing
 		}
-	case <-time.After(time.Duration(this.sendTimeoutSec)):
+	case <-time.After(time.Duration(c.sendTimeoutSec)):
 		{
 			//	timeout, close the connection
-			this.close()
+			c.close()
 			return ErrConnSendTimeout
 		}
 	}
@@ -244,18 +243,18 @@ func (this *Connection) sendRaw(msg []byte) error {
 	return nil
 }
 
-func (this *Connection) ApplyReadDeadline() {
-	if 0 != this.readTimeoutSec {
-		this.conn.SetReadDeadline(time.Now().Add(time.Duration(this.readTimeoutSec) * time.Second))
+func (c *Connection) ApplyReadDeadline() {
+	if 0 != c.readTimeoutSec {
+		c.conn.SetReadDeadline(time.Now().Add(time.Duration(c.readTimeoutSec) * time.Second))
 	}
 }
 
-func (this *Connection) ResetReadDeadline() {
-	this.conn.SetReadDeadline(time.Time{})
+func (c *Connection) ResetReadDeadline() {
+	c.conn.SetReadDeadline(time.Time{})
 }
 
 //	send bytes
-func (this *Connection) Send(msg []byte, flag int64) error {
+func (c *Connection) Send(msg []byte, flag int64) error {
 	buf := msg
 
 	//	copy send buffer
@@ -265,11 +264,11 @@ func (this *Connection) Send(msg []byte, flag int64) error {
 		buf = msgCopy
 	}
 
-	return this.sendRaw(buf)
+	return c.sendRaw(buf)
 }
 
 //	send protocol buffer message
-func (this *Connection) SendPb(pb proto.Message) error {
+func (c *Connection) SendPb(pb proto.Message) error {
 	var data []byte
 	var err error
 
@@ -278,60 +277,58 @@ func (this *Connection) SendPb(pb proto.Message) error {
 	}
 
 	//	send protobuf
-	return this.sendRaw(data)
+	return c.sendRaw(data)
 }
 
 //	run a routine to process the connection
-func (this *Connection) run() {
-	go this.routineMain()
+func (c *Connection) run() {
+	go c.routineMain()
 }
 
-func (this *Connection) routineMain() {
+func (c *Connection) routineMain() {
 	defer func() {
 		//	routine end
 		e := recover()
 		if e != nil {
-			log.Println("Panic:", e)
+			logError("Panic", e)
 		}
 
 		//	close the connection
-		this.close()
+		c.close()
 
 		//	free channel
 		//	FIXED : consumers need free it, not producer
-		//close(this.sendMsgQueue)
-		//this.sendMsgQueue = nil
 
 		//	post event
-		this.pushEvent(KConnEvent_Disconnected, nil)
+		c.pushEvent(KConnEvent_Disconnected, nil)
 	}()
 
-	if nil == this.streamProtocol {
+	if nil == c.streamProtocol {
 		panic("Nil stream protocol")
 		return
 	}
-	this.streamProtocol.Init()
+	c.streamProtocol.Init()
 
 	//	connected
-	this.pushEvent(KConnEvent_Connected, nil)
-	atomic.StoreInt32(&this.status, kConnStatus_Connected)
+	c.pushEvent(KConnEvent_Connected, nil)
+	atomic.StoreInt32(&c.status, kConnStatus_Connected)
 
-	go this.routineSend()
-	this.routineRead()
+	go c.routineSend()
+	c.routineRead()
 }
 
-func (this *Connection) routineSend() error {
+func (c *Connection) routineSend() error {
 	defer func() {
 		e := recover()
 		if nil != e {
 			//	panic
-			log.Println("Panic:", e)
+			logError("Panic", e)
 		}
 	}()
 
 	for {
 		select {
-		case evt, ok := <-this.sendMsgQueue:
+		case evt, ok := <-c.sendMsgQueue:
 			{
 				if !ok {
 					//	channel closed, quit
@@ -339,16 +336,16 @@ func (this *Connection) routineSend() error {
 				}
 
 				if nil == evt {
-					this.close()
+					c.close()
 					return nil
 				}
 
 				var err error
 
-				headerBytes := this.streamProtocol.SerializeHeader(evt)
+				headerBytes := c.streamProtocol.SerializeHeader(evt)
 				if nil != headerBytes {
 					//	write header first
-					_, err = this.conn.Write(headerBytes)
+					_, err = c.conn.Write(headerBytes)
 					if err != nil {
 						return err
 					}
@@ -358,7 +355,7 @@ func (this *Connection) routineSend() error {
 					break
 				}
 
-				_, err = this.conn.Write(evt)
+				_, err = c.conn.Write(evt)
 				if err != nil {
 					return err
 				}
@@ -369,30 +366,30 @@ func (this *Connection) routineSend() error {
 	return nil
 }
 
-func (this *Connection) routineRead() error {
+func (c *Connection) routineRead() error {
 	//	default buffer
-	buf := make([]byte, this.maxReadBufferLength)
+	buf := make([]byte, c.maxReadBufferLength)
 	var msg []byte
 	var err error
 
 	for {
-		if nil == this.unpacker {
-			msg, err = this.unpack(buf)
+		if nil == c.unpacker {
+			msg, err = c.unpack(buf)
 		} else {
-			msg, err = this.unpacker.Unpack(this, buf)
+			msg, err = c.unpacker.Unpack(c, buf)
 		}
 		if err != nil {
 			return err
 		}
 
 		//	only push event when the connection is connected
-		if this.status == kConnStatus_Connected {
+		if c.status == kConnStatus_Connected {
 			//	try to unserialize to pb. do it in each routine to reduce the pressure of worker routine
 			pb := unserializePb(msg)
 			if nil != pb {
-				this.pushPbEvent(pb)
+				c.pushPbEvent(pb)
 			} else {
-				this.pushEvent(KConnEvent_Data, msg)
+				c.pushEvent(KConnEvent_Data, msg)
 			}
 		}
 	}
@@ -400,26 +397,26 @@ func (this *Connection) routineRead() error {
 	return nil
 }
 
-func (this *Connection) unpack(buf []byte) ([]byte, error) {
+func (c *Connection) unpack(buf []byte) ([]byte, error) {
 	//	read head
-	this.ApplyReadDeadline()
-	headBuf := buf[:this.streamProtocol.GetHeaderLength()]
-	_, err := this.conn.Read(headBuf)
+	c.ApplyReadDeadline()
+	headBuf := buf[:c.streamProtocol.GetHeaderLength()]
+	_, err := c.conn.Read(headBuf)
 	if err != nil {
 		return nil, err
 	}
 
 	//	check length
-	packetLength := this.streamProtocol.UnserializeHeader(headBuf)
-	if packetLength > this.maxReadBufferLength ||
+	packetLength := c.streamProtocol.UnserializeHeader(headBuf)
+	if packetLength > c.maxReadBufferLength ||
 		0 == packetLength {
 		return nil, errors.New("The stream data is too long")
 	}
 
 	//	read body
-	this.ApplyReadDeadline()
-	bodyLength := packetLength - this.streamProtocol.GetHeaderLength()
-	_, err = this.conn.Read(buf[:bodyLength])
+	c.ApplyReadDeadline()
+	bodyLength := packetLength - c.streamProtocol.GetHeaderLength()
+	_, err = c.conn.Read(buf[:bodyLength])
 	if err != nil {
 		return nil, err
 	}
@@ -427,7 +424,7 @@ func (this *Connection) unpack(buf []byte) ([]byte, error) {
 	//	ok
 	msg := make([]byte, bodyLength)
 	copy(msg, buf[:bodyLength])
-	this.ResetReadDeadline()
+	c.ResetReadDeadline()
 
 	return msg, nil
 }

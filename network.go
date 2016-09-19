@@ -1,13 +1,15 @@
 package tcpnetwork
 
 import (
-	"log"
 	"net"
+	"sync/atomic"
 	"time"
 )
 
 const (
 	kServerConf_SendBufferSize = 1024
+	kServerConn                = 0
+	kClientConn                = 1
 )
 
 type TCPNetworkConf struct {
@@ -23,7 +25,7 @@ type TCPNetwork struct {
 	connIdForClient int
 	connsForServer  map[int]*Connection
 	connsForClient  map[int]*Connection
-	shutdown        bool
+	shutdownFlag    int32
 	readTimeoutSec  int
 }
 
@@ -33,20 +35,20 @@ func NewTCPNetwork(eventQueueSize int, sp IStreamProtocol) *TCPNetwork {
 	s.streamProtocol = sp
 	s.connsForServer = make(map[int]*Connection)
 	s.connsForClient = make(map[int]*Connection)
-	s.shutdown = false
+	s.shutdownFlag = 0
 	//	default config
 	s.Conf.SendBufferSize = kServerConf_SendBufferSize
 	return s
 }
 
-func (this *TCPNetwork) Push(evt *ConnEvent) {
-	if nil == this.eventQueue {
+func (t *TCPNetwork) Push(evt *ConnEvent) {
+	if nil == t.eventQueue {
 		return
 	}
 
 	//	push timeout
 	select {
-	case this.eventQueue <- evt:
+	case t.eventQueue <- evt:
 		{
 
 		}
@@ -58,8 +60,8 @@ func (this *TCPNetwork) Push(evt *ConnEvent) {
 
 }
 
-func (this *TCPNetwork) Pop() *ConnEvent {
-	evt, ok := <-this.eventQueue
+func (t *TCPNetwork) Pop() *ConnEvent {
+	evt, ok := <-t.eventQueue
 	if !ok {
 		//	event queue already closed
 		return nil
@@ -68,29 +70,29 @@ func (this *TCPNetwork) Pop() *ConnEvent {
 	return evt
 }
 
-func (this *TCPNetwork) GetEventQueue() <-chan *ConnEvent {
-	return this.eventQueue
+func (t *TCPNetwork) GetEventQueue() <-chan *ConnEvent {
+	return t.eventQueue
 }
 
-func (this *TCPNetwork) Listen(addr string) error {
+func (t *TCPNetwork) Listen(addr string) error {
 	ls, err := net.Listen("tcp", addr)
 	if nil != err {
 		return err
 	}
 
 	//	accept
-	this.listener = ls
-	go this.acceptRoutine()
+	t.listener = ls
+	go t.acceptRoutine()
 	return nil
 }
 
-func (this *TCPNetwork) Connect(addr string) (*Connection, error) {
+func (t *TCPNetwork) Connect(addr string) (*Connection, error) {
 	conn, err := net.Dial("tcp", addr)
 	if nil != err {
 		return nil, err
 	}
 
-	connection := this.createConn(conn)
+	connection := t.createConn(conn)
 	connection.from = 1
 	connection.run()
 	connection.init()
@@ -98,117 +100,106 @@ func (this *TCPNetwork) Connect(addr string) (*Connection, error) {
 	return connection, nil
 }
 
-func (this *TCPNetwork) GetStreamProtocol() IStreamProtocol {
-	return this.streamProtocol
+func (t *TCPNetwork) GetStreamProtocol() IStreamProtocol {
+	return t.streamProtocol
 }
 
-func (this *TCPNetwork) SetStreamProtocol(sp IStreamProtocol) {
-	this.streamProtocol = sp
+func (t *TCPNetwork) SetStreamProtocol(sp IStreamProtocol) {
+	t.streamProtocol = sp
 }
 
-func (this *TCPNetwork) GetReadTimeoutSec() int {
-	return this.readTimeoutSec
+func (t *TCPNetwork) GetReadTimeoutSec() int {
+	return t.readTimeoutSec
 }
 
-func (this *TCPNetwork) SetReadTimeoutSec(sec int) {
-	this.readTimeoutSec = sec
+func (t *TCPNetwork) SetReadTimeoutSec(sec int) {
+	t.readTimeoutSec = sec
 }
 
-func (this *TCPNetwork) DisconnectAllConnectionsServer() {
-	for k, c := range this.connsForServer {
+func (t *TCPNetwork) DisconnectAllConnectionsServer() {
+	for k, c := range t.connsForServer {
 		c.Close()
-		delete(this.connsForServer, k)
+		delete(t.connsForServer, k)
 	}
 }
 
-func (this *TCPNetwork) DisconnectAllConnectionsClient() {
-	for k, c := range this.connsForClient {
+func (t *TCPNetwork) DisconnectAllConnectionsClient() {
+	for k, c := range t.connsForClient {
 		c.Close()
-		delete(this.connsForClient, k)
+		delete(t.connsForClient, k)
 	}
 }
 
-func (this *TCPNetwork) Shutdown() {
-	if this.shutdown {
+func (t *TCPNetwork) Shutdown() {
+	if !atomic.CompareAndSwapInt32(&t.shutdownFlag, 0, 1) {
 		return
 	}
-	this.shutdown = true
 
 	//	stop accept routine
-	if nil != this.listener {
-		this.listener.Close()
-		this.listener = nil
+	if nil != t.listener {
+		t.listener.Close()
 	}
 
 	//	close all connections
-	this.DisconnectAllConnectionsClient()
-	this.DisconnectAllConnectionsServer()
+	t.DisconnectAllConnectionsClient()
+	t.DisconnectAllConnectionsServer()
 }
 
-func (this *TCPNetwork) createConn(c net.Conn) *Connection {
-	conn := newConnection(c, this.Conf.SendBufferSize, this)
-	conn.setStreamProtocol(this.streamProtocol)
+func (t *TCPNetwork) createConn(c net.Conn) *Connection {
+	conn := newConnection(c, t.Conf.SendBufferSize, t)
+	conn.setStreamProtocol(t.streamProtocol)
 	return conn
 }
 
-func (this *TCPNetwork) ServeWithHandler(handler IEventHandler) {
+func (t *TCPNetwork) ServeWithHandler(handler IEventHandler) {
+SERVE_LOOP:
 	for {
 		select {
-		case evt, ok := <-this.eventQueue:
+		case evt, ok := <-t.eventQueue:
 			{
 				if !ok {
-					//	channel closed??
-					break
+					//	channel closed or shutdown
+					break SERVE_LOOP
 				}
 
-				this.handleEvent(evt, handler)
-
-				//	terminate?
-				if this.shutdown {
-					//	shutdown?
-					if len(this.connsForClient) == 0 &&
-						len(this.connsForServer) == 0 {
-						//	terminate
-						this.shutdown = false
-						return
-					}
-				}
+				t.handleEvent(evt, handler)
 			}
 		}
 	}
 }
 
-func (this *TCPNetwork) acceptRoutine() {
+func (t *TCPNetwork) acceptRoutine() {
 	for {
-		conn, err := this.listener.Accept()
+		conn, err := t.listener.Accept()
 		if err != nil {
-			log.Println("accept routine quit.error:", err)
+			logError("accept routine quit.error:", err)
+			t.listener = nil
 			return
 		}
 
 		//	process conn event
-		connection := this.createConn(conn)
-		connection.SetReadTimeoutSec(this.readTimeoutSec)
-		connection.from = 0
+		connection := t.createConn(conn)
+		connection.SetReadTimeoutSec(t.readTimeoutSec)
+		connection.from = kServerConn
 		connection.init()
 		connection.run()
 	}
 }
 
-func (this *TCPNetwork) handleEvent(evt *ConnEvent, handler IEventHandler) {
+func (t *TCPNetwork) handleEvent(evt *ConnEvent, handler IEventHandler) {
 	switch evt.EventType {
 	case KConnEvent_Connected:
 		{
 			//	add to connection map
 			connId := 0
-			if evt.Conn.from == 0 {
-				connId = this.connIdForServer + 1
-				this.connIdForServer = connId
-				this.connsForServer[connId] = evt.Conn
+			if kServerConn == evt.Conn.from {
+				connId = t.connIdForServer + 1
+				t.connIdForServer = connId
+				t.connsForServer[connId] = evt.Conn
 			} else {
-				connId = this.connIdForClient + 1
-				this.connIdForClient = connId
-				this.connsForClient[connId] = evt.Conn
+				connId = t.connIdForClient + 1
+				t.connIdForClient = connId
+				t.connsForClient[connId] = evt.Conn
 			}
 			evt.Conn.connId = connId
 
@@ -219,10 +210,10 @@ func (this *TCPNetwork) handleEvent(evt *ConnEvent, handler IEventHandler) {
 			handler.OnDisconnected(evt)
 
 			//	remove from connection map
-			if evt.Conn.from == 0 {
-				delete(this.connsForServer, evt.Conn.connId)
+			if kServerConn == evt.Conn.from {
+				delete(t.connsForServer, evt.Conn.connId)
 			} else {
-				delete(this.connsForClient, evt.Conn.connId)
+				delete(t.connsForClient, evt.Conn.connId)
 			}
 		}
 	case KConnEvent_Data:
