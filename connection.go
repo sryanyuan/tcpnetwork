@@ -32,13 +32,21 @@ const (
 
 const (
 	KConnFlag_CopySendBuffer = 1 << iota
+	KConnFlag_NoHeader
 )
 
+// send task
+type sendTask struct {
+	data []byte
+	flag int64
+}
+
+// Connection is a wrap for net.Conn and process read and write task of the conn
 type Connection struct {
 	conn                net.Conn
 	status              int32
 	connId              int
-	sendMsgQueue        chan []byte
+	sendMsgQueue        chan *sendTask
 	sendTimeoutSec      int
 	eventQueue          IEventQueue
 	streamProtocol      IStreamProtocol
@@ -58,7 +66,7 @@ func newConnection(c net.Conn, sendBufferSize int, eq IEventQueue) *Connection {
 		conn:                c,
 		status:              kConnStatus_None,
 		connId:              0,
-		sendMsgQueue:        make(chan []byte, sendBufferSize),
+		sendMsgQueue:        make(chan *sendTask, sendBufferSize),
 		sendTimeoutSec:      kConnConf_DefaultSendTimeoutSec,
 		maxReadBufferLength: kConnConf_MaxReadBufferLength,
 		eventQueue:          eq,
@@ -219,7 +227,7 @@ func (c *Connection) setStreamProtocol(sp IStreamProtocol) {
 	c.streamProtocol = sp
 }
 
-func (c *Connection) sendRaw(msg []byte) error {
+func (c *Connection) sendRaw(task *sendTask) error {
 	if atomic.LoadInt32(&c.disableSend) != 0 {
 		return ErrConnIsClosed
 	}
@@ -228,7 +236,7 @@ func (c *Connection) sendRaw(msg []byte) error {
 	}
 
 	select {
-	case c.sendMsgQueue <- msg:
+	case c.sendMsgQueue <- task:
 		{
 			//	nothing
 		}
@@ -254,30 +262,40 @@ func (c *Connection) ResetReadDeadline() {
 }
 
 //	send bytes
-func (c *Connection) Send(msg []byte, flag int64) error {
+func (c *Connection) Send(msg []byte, f int64) error {
+	task := &sendTask{
+		data: msg,
+		flag: f,
+	}
 	buf := msg
 
 	//	copy send buffer
-	if 0 != flag&KConnFlag_CopySendBuffer {
+	if 0 != f&KConnFlag_CopySendBuffer {
 		msgCopy := make([]byte, len(msg))
 		copy(msgCopy, msg)
 		buf = msgCopy
+		task.data = buf
 	}
 
-	return c.sendRaw(buf)
+	return c.sendRaw(task)
 }
 
 //	send protocol buffer message
-func (c *Connection) SendPb(pb proto.Message) error {
-	var data []byte
+func (c *Connection) SendPb(pb proto.Message, f int64) error {
+	var pbd []byte
 	var err error
 
-	if data, err = proto.Marshal(pb); nil != err {
+	if pbd, err = proto.Marshal(pb); nil != err {
 		return err
 	}
 
+	task := sendTask{
+		data: pbd,
+		flag: f,
+	}
+
 	//	send protobuf
-	return c.sendRaw(data)
+	return c.sendRaw(&task)
 }
 
 //	run a routine to process the connection
@@ -342,20 +360,24 @@ func (c *Connection) routineSend() error {
 
 				var err error
 
-				headerBytes := c.streamProtocol.SerializeHeader(evt)
-				if nil != headerBytes {
-					//	write header first
-					_, err = c.conn.Write(headerBytes)
-					if err != nil {
-						return err
+				if 0 == evt.flag&KConnFlag_NoHeader {
+					headerBytes := c.streamProtocol.SerializeHeader(evt.data)
+					if nil != headerBytes {
+						//	write header first
+						if len(headerBytes) != 0 {
+							_, err = c.conn.Write(headerBytes)
+							if err != nil {
+								return err
+							}
+						}
+					} else {
+						//	invalid packet
+						panic("Failed to serialize header")
+						break
 					}
-				} else {
-					//	invalid packet
-					panic("Failed to serialize header")
-					break
 				}
 
-				_, err = c.conn.Write(evt)
+				_, err = c.conn.Write(evt.data)
 				if err != nil {
 					return err
 				}
