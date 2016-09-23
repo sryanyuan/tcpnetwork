@@ -103,7 +103,7 @@ func (c *Connection) close() {
 }
 
 func (c *Connection) Close() {
-	if c.status != kConnStatus_Connected {
+	if atomic.LoadInt32(&c.status) != kConnStatus_Connected {
 		return
 	}
 
@@ -405,7 +405,7 @@ func (c *Connection) routineRead() error {
 		}
 
 		//	only push event when the connection is connected
-		if c.status == kConnStatus_Connected {
+		if atomic.LoadInt32(&c.status) == kConnStatus_Connected {
 			//	try to unserialize to pb. do it in each routine to reduce the pressure of worker routine
 			pb := unserializePb(msg)
 			if nil != pb {
