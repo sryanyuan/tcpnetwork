@@ -10,71 +10,166 @@ Provide a simple model to process multi connections.You can use tcpnetwork as a 
 
 You can directly use tcpnetwork to send a protobuf message, and set a hook to unserialize your protobuf message.
 
+# asynchoronously process event
+
+A simple way to process connection event is to process all event in one routine by reading the event channel tcpnetwork.GetEventQueue(). 
+
+	server := tcpnetwork.NewTCPNetwork(1024, tcpnetwork.NewStreamProtocol4())
+	err = :server.Listen(kServerAddress)
+	if nil != err {
+		return panic(err)
+	}
+
+	for {
+		select {
+		case evt, ok := <-server.GetEventQueue():
+			{
+				if !ok {
+					return
+				}
+
+				switch evt.EventType {
+				case tcpnetwork.KConnEvent_Connected:
+					{
+						log.Println("Client ", evt.Conn.GetRemoteAddress(), " connected")
+					}
+				case tcpnetwork.KConnEvent_Close:
+					{
+						log.Println("Client ", evt.Conn.GetRemoteAddress(), " disconnected")
+					}
+				case tcpnetwork.KConnEvent_Data:
+					{
+						evt.Conn.Send(evt.Data, 0)
+					}
+				}
+			}
+		case <-stopCh:
+			{
+				return
+			}
+		}
+	}
+
+# synchronously process event
+
+When you need to process event in every connection routine, you can set a synchronously process function callback by setting the Connection's SetSyncExecuteFunc.
+
+Returning true in this callback function represents the processed event will not be put in the event queue.
+
+	client := tcpnetwork.NewTCPNetwork(1024, tcpnetwork.NewStreamProtocol4())
+	conn, err := client.Connect(kServerAddress)
+	conn.SetSyncExecuteFunc(...)
+
 # example
 
 *  echo server
 
-		package main
+		// echo server routine
+		func echoServer() (*tcpnetwork.TCPNetwork, error) {
+			var err error
+			server := tcpnetwork.NewTCPNetwork(1024, tcpnetwork.NewStreamProtocol4())
+			err = server.Listen(kServerAddress)
+			if nil != err {
+				return nil, err
+			}
 		
-		import (
-		    "log"
-		
-		    "github.com/sryanyuan/tcpnetwork"
-		)
-		
-		type TSShutdown struct {
-		    network *tcpnetwork.TCPNetwork
+			return server, nil
 		}
 		
-		func NewTSShutdown() *TSShutdown {
-		    t := &TSShutdown{}
-		    t.network = tcpnetwork.NewTCPNetwork(1024, tcpnetwork.NewStreamProtocol4())
-		    return t
+		func routineEchoServer(server *tcpnetwork.TCPNetwork, wg *sync.WaitGroup, stopCh chan struct{}) {
+			defer func() {
+				log.Println("server done")
+				wg.Done()
+			}()
+		
+			for {
+				select {
+				case evt, ok := <-server.GetEventQueue():
+					{
+						if !ok {
+							return
+						}
+		
+						switch evt.EventType {
+						case tcpnetwork.KConnEvent_Connected:
+							{
+								log.Println("Client ", evt.Conn.GetRemoteAddress(), " connected")
+							}
+						case tcpnetwork.KConnEvent_Close:
+							{
+								log.Println("Client ", evt.Conn.GetRemoteAddress(), " disconnected")
+							}
+						case tcpnetwork.KConnEvent_Data:
+							{
+								evt.Conn.Send(evt.Data, 0)
+							}
+						}
+					}
+				case <-stopCh:
+					{
+						return
+					}
+				}
+			}
 		}
 		
-		func (this *TSShutdown) OnConnected(evt *tcpnetwork.ConnEvent) {
-		    log.Println("connected ", evt.Conn.GetConnId())
+* echo client
+		
+		// echo client routine
+		func echoClient() (*tcpnetwork.TCPNetwork, *tcpnetwork.Connection, error) {
+			var err error
+			client := tcpnetwork.NewTCPNetwork(1024, tcpnetwork.NewStreamProtocol4())
+			conn, err := client.Connect(kServerAddress)
+			if nil != err {
+				return nil, nil, err
+			}
+		
+			return client, conn, nil
 		}
 		
-		func (this *TSShutdown) OnDisconnected(evt *tcpnetwork.ConnEvent) {
-		    log.Println("disconnected ", evt.Conn.GetConnId())
+		func routineEchoClient(client *tcpnetwork.TCPNetwork, wg *sync.WaitGroup, stopCh chan struct{}) {
+			defer func() {
+				log.Println("client done")
+				wg.Done()
+			}()
+		
+		EVENTLOOP:
+			for {
+				select {
+				case evt, ok := <-client.GetEventQueue():
+					{
+						if !ok {
+							return
+						}
+						switch evt.EventType {
+						case tcpnetwork.KConnEvent_Connected:
+							{
+								log.Println("Press any thing")
+								atomic.StoreInt32(&serverConnected, 1)
+							}
+						case tcpnetwork.KConnEvent_Close:
+							{
+								log.Println("Disconnected from server")
+								atomic.StoreInt32(&serverConnected, 0)
+								break EVENTLOOP
+							}
+						case tcpnetwork.KConnEvent_Data:
+							{
+								text := string(evt.Data)
+								log.Println(evt.Conn.GetRemoteAddress(), ":", text)
+							}
+						}
+					}
+				case <-stopCh:
+					{
+						return
+					}
+				}
+			}
 		}
-		
-		func (this *TSShutdown) OnRecv(evt *tcpnetwork.ConnEvent) {
-		    log.Println("recv ", evt.Conn.GetConnId(), evt.Data)
-		
-		    evt.Conn.Send(evt.Data, false)
-		}
-		
-		func (this *TSShutdown) Run() {
-		    err := this.network.Listen("127.0.0.1:2222")
-		
-		    if err != nil {
-		        log.Println(err)
-		        return
-		    }
-		
-		    this.network.ServeWithHandler(this)
-		    log.Println("done")
-		}
-		
-		
-		package main
-		
-		import (
-		    "fmt"
-		    "log"
-		)
-		
-		func main() {
-		    defer func() {
-		        e := recover()
-		        if e != nil {
-		            log.Println(e)
-		        }
-		        var inp int
-		        fmt.Scanln(&inp)
-		    }()
-		    tsshutdown := NewTSShutdown()
-		    tsshutdown.Run()
-		}
+
+See more example in cmd directory.
+
+# license
+
+MIT

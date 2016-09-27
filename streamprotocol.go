@@ -14,6 +14,8 @@ func getStreamMaxLength(headerBytes uint32) uint64 {
 	return 1<<(8*headerBytes) - 1
 }
 
+// StreamProtocol4
+// Binary format : | 4 byte (total stream length) | data ... (total stream length - 4) |
 //	implement default stream protocol
 //	stream protocol interface for 4 bytes header
 type StreamProtocol4 struct {
@@ -53,6 +55,8 @@ func (s *StreamProtocol4) SerializeHeader(body []byte) []byte {
 	return s.serializeBuf.Bytes()
 }
 
+// StreamProtocol2
+// Binary format : | 2 byte (total stream length) | data ... (total stream length - 2) |
 //	stream protocol interface for 2 bytes header
 type StreamProtocol2 struct {
 	serializeBuf   *bytes.Buffer

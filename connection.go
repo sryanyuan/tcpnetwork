@@ -15,6 +15,7 @@ const (
 	kConnStatus_Disconnected
 )
 
+// All connection event
 const (
 	KConnEvent_None = iota
 	KConnEvent_Connected
@@ -30,9 +31,10 @@ const (
 	kConnConf_MaxReadBufferLength   = 0xffff // 0xffff
 )
 
+// Send method flag
 const (
-	KConnFlag_CopySendBuffer = 1 << iota
-	KConnFlag_NoHeader
+	KConnFlag_CopySendBuffer = 1 << iota // do not copy the send buffer
+	KConnFlag_NoHeader                   // do not append stream header
 )
 
 // send task
@@ -42,6 +44,7 @@ type sendTask struct {
 }
 
 // Connection is a wrap for net.Conn and process read and write task of the conn
+// When event occurs, it will call the eventQueue to dispatch event
 type Connection struct {
 	conn                net.Conn
 	status              int32
@@ -73,6 +76,7 @@ func newConnection(c net.Conn, sendBufferSize int, eq IEventQueue) *Connection {
 	}
 }
 
+// ConnEvent represents a event occurs on a connection, such as connected, disconnected or data arrived
 type ConnEvent struct {
 	EventType int
 	Conn      *Connection
@@ -102,6 +106,7 @@ func (c *Connection) close() {
 	}
 }
 
+// Close the connection, routine safe, send task in the queue will be sent before closing the connection
 func (c *Connection) Close() {
 	if atomic.LoadInt32(&c.status) != kConnStatus_Connected {
 		return
@@ -165,12 +170,15 @@ func (c *Connection) pushPbEvent(pb proto.Message) {
 	})
 }
 
+// SetSyncExecuteFunc , you can set a callback that you can synchoronously process the event in every connection's event routine
+// If the callback function return true, the event will not be dispatched
 func (c *Connection) SetSyncExecuteFunc(fn FuncSyncExecute) FuncSyncExecute {
 	prevFn := c.fnSyncExecute
 	c.fnSyncExecute = fn
 	return prevFn
 }
 
+// GetStatus get the connection's status
 func (c *Connection) GetStatus() int32 {
 	return c.status
 }
@@ -179,46 +187,57 @@ func (c *Connection) setStatus(stat int) {
 	c.status = int32(stat)
 }
 
+// GetConnId get the connection's id
 func (c *Connection) GetConnId() int {
 	return c.connId
 }
 
+// SetConnId set the connection's id
 func (c *Connection) SetConnId(id int) {
 	c.connId = id
 }
 
+// GetConn get the raw net.Conn interface
 func (c *Connection) GetConn() net.Conn {
 	return c.conn
 }
 
+// GetUserdata get the userdata you set
 func (c *Connection) GetUserdata() interface{} {
 	return c.userdata
 }
 
+// SetUserdata set the userdata you need
 func (c *Connection) SetUserdata(ud interface{}) {
 	c.userdata = ud
 }
 
+// SetReadTimeoutSec set the read deadline for the connection
 func (c *Connection) SetReadTimeoutSec(sec int) {
 	c.readTimeoutSec = sec
 }
 
+//  GetReadTimeoutSec get the read deadline for the connection
 func (c *Connection) GetReadTimeoutSec() int {
 	return c.readTimeoutSec
 }
 
+// GetRemoteAddress return the remote address of the connection
 func (c *Connection) GetRemoteAddress() string {
 	return c.remoteAddr
 }
 
+// GetLocalAddress return the local address of the connection
 func (c *Connection) GetLocalAddress() string {
 	return c.localAddr
 }
 
+// SetUnpacker you can set a custom binary stream unpacker on the connection
 func (c *Connection) SetUnpacker(unpacker IUnpacker) {
 	c.unpacker = unpacker
 }
 
+// GetUnpacker you can get the unpacker you set
 func (c *Connection) GetUnpacker() IUnpacker {
 	return c.unpacker
 }
@@ -251,17 +270,19 @@ func (c *Connection) sendRaw(task *sendTask) error {
 	return nil
 }
 
+// ApplyReadDealine
 func (c *Connection) ApplyReadDeadline() {
 	if 0 != c.readTimeoutSec {
 		c.conn.SetReadDeadline(time.Now().Add(time.Duration(c.readTimeoutSec) * time.Second))
 	}
 }
 
+// ResetReadDeadline
 func (c *Connection) ResetReadDeadline() {
 	c.conn.SetReadDeadline(time.Time{})
 }
 
-//	send bytes
+// Send the buffer
 func (c *Connection) Send(msg []byte, f int64) error {
 	task := &sendTask{
 		data: msg,
@@ -280,7 +301,7 @@ func (c *Connection) Send(msg []byte, f int64) error {
 	return c.sendRaw(task)
 }
 
-//	send protocol buffer message
+// SendPb send protocol buffer message
 func (c *Connection) SendPb(pb proto.Message, f int64) error {
 	var pbd []byte
 	var err error
