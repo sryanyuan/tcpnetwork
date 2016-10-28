@@ -41,7 +41,6 @@ func NewTCPNetwork(eventQueueSize int, sp IStreamProtocol) *TCPNetwork {
 	return s
 }
 
-// Push implements the IEventQueue interface
 func (t *TCPNetwork) Push(evt *ConnEvent) {
 	if nil == t.eventQueue {
 		return
@@ -61,7 +60,6 @@ func (t *TCPNetwork) Push(evt *ConnEvent) {
 
 }
 
-// Pop the event in event queue
 func (t *TCPNetwork) Pop() *ConnEvent {
 	evt, ok := <-t.eventQueue
 	if !ok {
@@ -72,12 +70,10 @@ func (t *TCPNetwork) Pop() *ConnEvent {
 	return evt
 }
 
-// GetEventQueue get the event queue channel
 func (t *TCPNetwork) GetEventQueue() <-chan *ConnEvent {
 	return t.eventQueue
 }
 
-// Listen an address to accept client connection
 func (t *TCPNetwork) Listen(addr string) error {
 	ls, err := net.Listen("tcp", addr)
 	if nil != err {
@@ -90,7 +86,6 @@ func (t *TCPNetwork) Listen(addr string) error {
 	return nil
 }
 
-// Connect the remote server
 func (t *TCPNetwork) Connect(addr string) (*Connection, error) {
 	conn, err := net.Dial("tcp", addr)
 	if nil != err {
@@ -135,7 +130,6 @@ func (t *TCPNetwork) DisconnectAllConnectionsClient() {
 	}
 }
 
-// Shutdown frees all connection and stop the listener
 func (t *TCPNetwork) Shutdown() {
 	if !atomic.CompareAndSwapInt32(&t.shutdownFlag, 0, 1) {
 		return
@@ -157,7 +151,6 @@ func (t *TCPNetwork) createConn(c net.Conn) *Connection {
 	return conn
 }
 
-// ServeWithHandler process all events in the event queue and dispatch to the IEventHandler
 func (t *TCPNetwork) ServeWithHandler(handler IEventHandler) {
 SERVE_LOOP:
 	for {
@@ -176,10 +169,30 @@ SERVE_LOOP:
 }
 
 func (t *TCPNetwork) acceptRoutine() {
+	// after accept temporary failure, enter sleep and try again
+	var tempDelay time.Duration
+
 	for {
 		conn, err := t.listener.Accept()
 		if err != nil {
-			logError("accept routine quit.error:", err)
+			// check if the error is an temporary error
+			if acceptErr, ok := err.(net.Error); ok && acceptErr.Temporary() {
+				if 0 == tempDelay {
+					tempDelay = 5 * time.Millisecond
+				} else {
+					tempDelay *= 2
+				}
+
+				if max := 1 * time.Second; tempDelay > max {
+					tempDelay = max
+				}
+
+				logWarn("Accept error %s , retry after %d ms", acceptErr.Error(), tempDelay)
+				time.Sleep(tempDelay)
+				continue
+			}
+
+			logError("accept routine quit.error:%s", err.Error())
 			t.listener = nil
 			return
 		}
