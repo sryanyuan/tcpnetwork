@@ -10,6 +10,7 @@ const (
 	KLogLevelInfo
 	KLogLevelWarn
 	KLogLevelError
+	KLogLevelFatal
 )
 
 var logLevelPrefix = []string{
@@ -17,6 +18,7 @@ var logLevelPrefix = []string{
 	"[INF] ",
 	"[WRN] ",
 	"[ERR] ",
+	"[FAL]",
 }
 
 //ILogger is an interface use for log message
@@ -60,4 +62,8 @@ func logWarn(f string, v ...interface{}) {
 
 func logError(f string, v ...interface{}) {
 	_log(KLogLevelError, 2, fmt.Sprintf(f, v...))
+}
+
+func logFatal(f string, v ...interface{}) {
+	_log(KLogLevelFatal, 2, fmt.Sprintf(f, v...))
 }

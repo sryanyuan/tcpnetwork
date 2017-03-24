@@ -1,9 +1,6 @@
 package tcpnetwork
 
-import (
-	"bytes"
-	"encoding/binary"
-)
+import "encoding/binary"
 
 const (
 	kStreamProtocol4HeaderLength = 4
@@ -19,8 +16,6 @@ func getStreamMaxLength(headerBytes uint32) uint64 {
 //	implement default stream protocol
 //	stream protocol interface for 4 bytes header
 type StreamProtocol4 struct {
-	serializeBuf   *bytes.Buffer
-	unserializeBuf *bytes.Buffer
 }
 
 func NewStreamProtocol4() *StreamProtocol4 {
@@ -28,20 +23,18 @@ func NewStreamProtocol4() *StreamProtocol4 {
 }
 
 func (s *StreamProtocol4) Init() {
-	s.serializeBuf = new(bytes.Buffer)
-	s.unserializeBuf = new(bytes.Buffer)
+
 }
 
-func (s *StreamProtocol4) GetHeaderLength() int {
+func (s *StreamProtocol4) GetHeaderLength() uint32 {
 	return kStreamProtocol4HeaderLength
 }
 
-func (s *StreamProtocol4) UnserializeHeader(buf []byte) int {
-	var ln int32 = 0
-	s.unserializeBuf.Reset()
-	s.unserializeBuf.Write(buf)
-	binary.Read(s.unserializeBuf, binary.BigEndian, &ln)
-	return int(ln)
+func (s *StreamProtocol4) UnserializeHeader(buf []byte) uint32 {
+	if len(buf) < kStreamProtocol4HeaderLength {
+		return 0
+	}
+	return binary.BigEndian.Uint32(buf)
 }
 
 func (s *StreamProtocol4) SerializeHeader(body []byte) []byte {
@@ -49,18 +42,17 @@ func (s *StreamProtocol4) SerializeHeader(body []byte) []byte {
 		//	stream is too long
 		return nil
 	}
-	var ln int32 = int32(len(body) + kStreamProtocol4HeaderLength)
-	s.serializeBuf.Reset()
-	binary.Write(s.serializeBuf, binary.BigEndian, &ln)
-	return s.serializeBuf.Bytes()
+
+	var ln uint32 = uint32(len(body) + kStreamProtocol4HeaderLength)
+	var buffer [kStreamProtocol4HeaderLength]byte
+	binary.BigEndian.PutUint32(buffer[0:], ln)
+	return buffer[0:]
 }
 
 // StreamProtocol2
 // Binary format : | 2 byte (total stream length) | data ... (total stream length - 2) |
 //	stream protocol interface for 2 bytes header
 type StreamProtocol2 struct {
-	serializeBuf   *bytes.Buffer
-	unserializeBuf *bytes.Buffer
 }
 
 func NewStreamProtocol2() *StreamProtocol2 {
@@ -68,20 +60,18 @@ func NewStreamProtocol2() *StreamProtocol2 {
 }
 
 func (s *StreamProtocol2) Init() {
-	s.serializeBuf = new(bytes.Buffer)
-	s.unserializeBuf = new(bytes.Buffer)
+
 }
 
-func (s *StreamProtocol2) GetHeaderLength() int {
+func (s *StreamProtocol2) GetHeaderLength() uint32 {
 	return kStreamProtocol2HeaderLength
 }
 
-func (s *StreamProtocol2) UnserializeHeader(buf []byte) int {
-	var ln int16 = 0
-	s.unserializeBuf.Reset()
-	s.unserializeBuf.Write(buf)
-	binary.Read(s.unserializeBuf, binary.BigEndian, &ln)
-	return int(ln)
+func (s *StreamProtocol2) UnserializeHeader(buf []byte) uint32 {
+	if len(buf) < kStreamProtocol2HeaderLength {
+		return 0
+	}
+	return uint32(binary.BigEndian.Uint16(buf))
 }
 
 func (s *StreamProtocol2) SerializeHeader(body []byte) []byte {
@@ -90,8 +80,8 @@ func (s *StreamProtocol2) SerializeHeader(body []byte) []byte {
 		return nil
 	}
 
-	var ln int16 = int16(len(body) + kStreamProtocol2HeaderLength)
-	s.serializeBuf.Reset()
-	binary.Write(s.serializeBuf, binary.BigEndian, &ln)
-	return s.serializeBuf.Bytes()
+	var ln uint16 = uint16(len(body) + kStreamProtocol2HeaderLength)
+	var buffer [kStreamProtocol2HeaderLength]byte
+	binary.BigEndian.PutUint16(buffer[0:], ln)
+	return buffer[0:]
 }

@@ -9,9 +9,9 @@ type IStreamProtocol interface {
 	//	Init
 	Init()
 	//	get the header length of the stream
-	GetHeaderLength() int
+	GetHeaderLength() uint32
 	//	read the header length of the stream
-	UnserializeHeader([]byte) int
+	UnserializeHeader([]byte) uint32
 	//	format header
 	SerializeHeader([]byte) []byte
 }

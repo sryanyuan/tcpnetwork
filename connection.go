@@ -1,10 +1,12 @@
 package tcpnetwork
 
 import (
-	"errors"
+	"fmt"
 	"net"
 	"sync/atomic"
 	"time"
+
+	"runtime/debug"
 
 	"github.com/golang/protobuf/proto"
 )
@@ -117,7 +119,7 @@ func (c *Connection) Close() {
 		{
 			//	nothing
 		}
-	case <-time.After(time.Duration(c.sendTimeoutSec)):
+	case <-time.After(time.Duration(c.sendTimeoutSec) * time.Second):
 		{
 			//	timeout, close the connection
 			c.close()
@@ -259,9 +261,10 @@ func (c *Connection) sendRaw(task *sendTask) error {
 		{
 			//	nothing
 		}
-	case <-time.After(time.Duration(c.sendTimeoutSec)):
+	case <-time.After(time.Duration(c.sendTimeoutSec) * time.Second):
 		{
 			//	timeout, close the connection
+			logError("Send to peer %s timeout, close connection", c.GetRemoteAddress())
 			c.close()
 			return ErrConnSendTimeout
 		}
@@ -329,10 +332,13 @@ func (c *Connection) routineMain() {
 		//	routine end
 		e := recover()
 		if e != nil {
-			logError("Panic", e)
+			logFatal("Read routine panic %v, stack:", e)
+			stackInfo := debug.Stack()
+			logFatal(string(stackInfo))
 		}
 
 		//	close the connection
+		logWarn("Read routine %s closed", c.GetRemoteAddress())
 		c.close()
 
 		//	free channel
@@ -353,15 +359,25 @@ func (c *Connection) routineMain() {
 	atomic.StoreInt32(&c.status, kConnStatus_Connected)
 
 	go c.routineSend()
-	c.routineRead()
+	err := c.routineRead()
+	if nil != err {
+		logError("Read routine quit with error %v", err)
+	}
 }
 
 func (c *Connection) routineSend() error {
+	var err error
+
 	defer func() {
+		if nil != err {
+			logError("Send routine quit with error %v", err)
+		}
 		e := recover()
 		if nil != e {
 			//	panic
-			logError("Panic", e)
+			logFatal("Send routine panic %v, stack:", e)
+			stackInfo := debug.Stack()
+			logFatal(string(stackInfo))
 		}
 	}()
 
@@ -378,8 +394,6 @@ func (c *Connection) routineSend() error {
 					c.close()
 					return nil
 				}
-
-				var err error
 
 				if 0 == evt.flag&KConnFlag_NoHeader {
 					headerBytes := c.streamProtocol.SerializeHeader(evt.data)
@@ -424,6 +438,10 @@ func (c *Connection) routineRead() error {
 		if err != nil {
 			return err
 		}
+		if nil == msg {
+			// Empty pstream
+			continue
+		}
 
 		//	only push event when the connection is connected
 		if atomic.LoadInt32(&c.status) == kConnStatus_Connected {
@@ -443,7 +461,11 @@ func (c *Connection) routineRead() error {
 func (c *Connection) unpack(buf []byte) ([]byte, error) {
 	//	read head
 	c.ApplyReadDeadline()
-	headBuf := buf[:c.streamProtocol.GetHeaderLength()]
+	headerLength := int(c.streamProtocol.GetHeaderLength())
+	if headerLength > len(buf) {
+		return nil, fmt.Errorf("Header length %d > buffer length %d", headerLength, len(buf))
+	}
+	headBuf := buf[:headerLength]
 	_, err := c.conn.Read(headBuf)
 	if err != nil {
 		return nil, err
@@ -451,9 +473,14 @@ func (c *Connection) unpack(buf []byte) ([]byte, error) {
 
 	//	check length
 	packetLength := c.streamProtocol.UnserializeHeader(headBuf)
-	if packetLength > c.maxReadBufferLength ||
-		0 == packetLength {
-		return nil, errors.New("The stream data is too long")
+	if packetLength > uint32(c.maxReadBufferLength) ||
+		packetLength < c.streamProtocol.GetHeaderLength() {
+		return nil, fmt.Errorf("Invalid stream length %d", packetLength)
+	}
+	if packetLength == c.streamProtocol.GetHeaderLength() {
+		// Empty stream ?
+		logFatal("Invalid stream length equal to header length")
+		return nil, nil
 	}
 
 	//	read body
