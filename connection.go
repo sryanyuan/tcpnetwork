@@ -2,6 +2,7 @@ package tcpnetwork
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"sync/atomic"
 	"time"
@@ -459,6 +460,7 @@ func (c *Connection) routineRead() error {
 }
 
 func (c *Connection) unpack(buf []byte) ([]byte, error) {
+	var err error
 	//	read head
 	c.ApplyReadDeadline()
 	headerLength := int(c.streamProtocol.GetHeaderLength())
@@ -466,8 +468,7 @@ func (c *Connection) unpack(buf []byte) ([]byte, error) {
 		return nil, fmt.Errorf("Header length %d > buffer length %d", headerLength, len(buf))
 	}
 	headBuf := buf[:headerLength]
-	_, err := c.conn.Read(headBuf)
-	if err != nil {
+	if _, err = io.ReadFull(c.conn, headBuf); nil != err {
 		return nil, err
 	}
 
@@ -486,8 +487,7 @@ func (c *Connection) unpack(buf []byte) ([]byte, error) {
 	//	read body
 	c.ApplyReadDeadline()
 	bodyLength := packetLength - c.streamProtocol.GetHeaderLength()
-	_, err = c.conn.Read(buf[:bodyLength])
-	if err != nil {
+	if _, err = io.ReadFull(c.conn, buf[:bodyLength]); nil != err {
 		return nil, err
 	}
 
