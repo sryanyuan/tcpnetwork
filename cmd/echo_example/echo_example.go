@@ -99,7 +99,7 @@ EVENTLOOP:
 				switch evt.EventType {
 				case tcpnetwork.KConnEvent_Connected:
 					{
-						log.Println("Press any thing")
+						log.Println("Input any thing")
 						atomic.StoreInt32(&serverConnected, 1)
 					}
 				case tcpnetwork.KConnEvent_Close:
@@ -143,6 +143,10 @@ func routineInput(wg *sync.WaitGroup, clientConn *tcpnetwork.Connection) {
 
 		if atomic.LoadInt32(&serverConnected) != 1 {
 			log.Println("Not connected")
+			continue
+		}
+
+		if len(str) == 0 {
 			continue
 		}
 

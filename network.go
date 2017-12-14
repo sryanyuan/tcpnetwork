@@ -6,16 +6,19 @@ import (
 	"time"
 )
 
+// Constants
 const (
 	kServerConf_SendBufferSize = 1024
 	kServerConn                = 0
 	kClientConn                = 1
 )
 
+// TCPNetworkConf config the TCPNetwork
 type TCPNetworkConf struct {
 	SendBufferSize int
 }
 
+// TCPNetwork manages all server and client connections
 type TCPNetwork struct {
 	streamProtocol  IStreamProtocol
 	eventQueue      chan *ConnEvent
@@ -29,6 +32,7 @@ type TCPNetwork struct {
 	readTimeoutSec  int
 }
 
+// NewTCPNetwork creates a TCPNetwork object
 func NewTCPNetwork(eventQueueSize int, sp IStreamProtocol) *TCPNetwork {
 	s := &TCPNetwork{}
 	s.eventQueue = make(chan *ConnEvent, eventQueueSize)
@@ -105,22 +109,27 @@ func (t *TCPNetwork) Connect(addr string) (*Connection, error) {
 	return connection, nil
 }
 
+// GetStreamProtocol returns the stream protocol of current TCPNetwork
 func (t *TCPNetwork) GetStreamProtocol() IStreamProtocol {
 	return t.streamProtocol
 }
 
+// SetStreamProtocol sets the stream protocol of current TCPNetwork
 func (t *TCPNetwork) SetStreamProtocol(sp IStreamProtocol) {
 	t.streamProtocol = sp
 }
 
+// GetReadTimeoutSec returns the read timeout seconds of current TCPNetwork
 func (t *TCPNetwork) GetReadTimeoutSec() int {
 	return t.readTimeoutSec
 }
 
+// SetReadTimeoutSec sets the read timeout seconds of current TCPNetwork
 func (t *TCPNetwork) SetReadTimeoutSec(sec int) {
 	t.readTimeoutSec = sec
 }
 
+// DisconnectAllConnectionsServer disconnect all connections on server side
 func (t *TCPNetwork) DisconnectAllConnectionsServer() {
 	for k, c := range t.connsForServer {
 		c.Close()
@@ -128,6 +137,7 @@ func (t *TCPNetwork) DisconnectAllConnectionsServer() {
 	}
 }
 
+// DisconnectAllConnectionsClient disconnect all connections on client side
 func (t *TCPNetwork) DisconnectAllConnectionsClient() {
 	for k, c := range t.connsForClient {
 		c.Close()
@@ -141,12 +151,12 @@ func (t *TCPNetwork) Shutdown() {
 		return
 	}
 
-	//	stop accept routine
+	// Stop accept routine
 	if nil != t.listener {
 		t.listener.Close()
 	}
 
-	//	close all connections
+	// Close all connections
 	t.DisconnectAllConnectionsClient()
 	t.DisconnectAllConnectionsServer()
 }
@@ -165,7 +175,7 @@ SERVE_LOOP:
 		case evt, ok := <-t.eventQueue:
 			{
 				if !ok {
-					//	channel closed or shutdown
+					// Channel closed or shutdown
 					break SERVE_LOOP
 				}
 
@@ -176,13 +186,13 @@ SERVE_LOOP:
 }
 
 func (t *TCPNetwork) acceptRoutine() {
-	// after accept temporary failure, enter sleep and try again
+	// After accept temporary failure, enter sleep and try again
 	var tempDelay time.Duration
 
 	for {
 		conn, err := t.listener.Accept()
 		if err != nil {
-			// check if the error is an temporary error
+			// Check if the error is an temporary error
 			if acceptErr, ok := err.(net.Error); ok && acceptErr.Temporary() {
 				if 0 == tempDelay {
 					tempDelay = 5 * time.Millisecond
@@ -204,7 +214,7 @@ func (t *TCPNetwork) acceptRoutine() {
 			return
 		}
 
-		//	process conn event
+		// Process conn event
 		connection := t.createConn(conn)
 		connection.SetReadTimeoutSec(t.readTimeoutSec)
 		connection.from = kServerConn
@@ -217,18 +227,18 @@ func (t *TCPNetwork) handleEvent(evt *ConnEvent, handler IEventHandler) {
 	switch evt.EventType {
 	case KConnEvent_Connected:
 		{
-			//	add to connection map
-			connId := 0
+			// Add to connection map
+			connID := 0
 			if kServerConn == evt.Conn.from {
-				connId = t.connIdForServer + 1
-				t.connIdForServer = connId
-				t.connsForServer[connId] = evt.Conn
+				connID = t.connIdForServer + 1
+				t.connIdForServer = connID
+				t.connsForServer[connID] = evt.Conn
 			} else {
-				connId = t.connIdForClient + 1
-				t.connIdForClient = connId
-				t.connsForClient[connId] = evt.Conn
+				connID = t.connIdForClient + 1
+				t.connIdForClient = connID
+				t.connsForClient[connID] = evt.Conn
 			}
-			evt.Conn.connId = connId
+			evt.Conn.connID = connID
 
 			handler.OnConnected(evt)
 		}
@@ -236,11 +246,11 @@ func (t *TCPNetwork) handleEvent(evt *ConnEvent, handler IEventHandler) {
 		{
 			handler.OnDisconnected(evt)
 
-			//	remove from connection map
+			// Remove from connection map
 			if kServerConn == evt.Conn.from {
-				delete(t.connsForServer, evt.Conn.connId)
+				delete(t.connsForServer, evt.Conn.connID)
 			} else {
-				delete(t.connsForClient, evt.Conn.connId)
+				delete(t.connsForClient, evt.Conn.connID)
 			}
 		}
 	case KConnEvent_Data:

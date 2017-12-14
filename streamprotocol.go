@@ -11,21 +11,24 @@ func getStreamMaxLength(headerBytes uint32) uint64 {
 	return 1<<(8*headerBytes) - 1
 }
 
-// StreamProtocol4
+// StreamProtocol4 implement a simple binary stream protocol with 4 bytes header as packet length
 // Binary format : | 4 byte (total stream length) | data ... (total stream length - 4) |
 //	implement default stream protocol
 //	stream protocol interface for 4 bytes header
 type StreamProtocol4 struct {
 }
 
+// NewStreamProtocol4 creates a StreamProtocol4
 func NewStreamProtocol4() *StreamProtocol4 {
 	return &StreamProtocol4{}
 }
 
+// Init inits the protocol
 func (s *StreamProtocol4) Init() {
 
 }
 
+// GetHeaderLength return the header length
 func (s *StreamProtocol4) GetHeaderLength() uint32 {
 	return kStreamProtocol4HeaderLength
 }
@@ -49,7 +52,7 @@ func (s *StreamProtocol4) SerializeHeader(body []byte) []byte {
 	return buffer[0:]
 }
 
-// StreamProtocol2
+// StreamProtocol2 implement a simple binary stream protocol with 2 bytes header as packet length
 // Binary format : | 2 byte (total stream length) | data ... (total stream length - 2) |
 //	stream protocol interface for 2 bytes header
 type StreamProtocol2 struct {

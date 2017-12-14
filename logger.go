@@ -21,12 +21,12 @@ var logLevelPrefix = []string{
 	"[FAL]",
 }
 
-//ILogger is an interface use for log message
+// ILogger is an interface use for log message
 type ILogger interface {
 	Output(level int, calldepth int, f string) error
 }
 
-//	default logger
+// Default logger
 type defaultLogger struct {
 }
 
@@ -35,11 +35,11 @@ func (d *defaultLogger) Output(level int, calldepth int, f string) error {
 	return log.Output(calldepth, text)
 }
 
-//global varibale
+// Global variables
 var myDefaultLogger defaultLogger
 var myLogger ILogger = &myDefaultLogger
 
-//Set the custom logger
+// SetLogger Set the custom logger
 func SetLogger(logger ILogger) {
 	myLogger = logger
 }

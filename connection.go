@@ -36,8 +36,8 @@ const (
 
 // Send method flag
 const (
-	KConnFlag_CopySendBuffer = 1 << iota // do not copy the send buffer
-	KConnFlag_NoHeader                   // do not append stream header
+	KConnFlag_CopySendBuffer = 1 << iota // Copy the send buffer
+	KConnFlag_NoHeader                   // Do not append stream header
 )
 
 // send task
@@ -51,7 +51,7 @@ type sendTask struct {
 type Connection struct {
 	conn                net.Conn
 	status              int32
-	connId              int
+	connID              int
 	sendMsgQueue        chan *sendTask
 	sendTimeoutSec      int
 	eventQueue          IEventQueue
@@ -71,7 +71,7 @@ func newConnection(c net.Conn, sendBufferSize int, eq IEventQueue) *Connection {
 	return &Connection{
 		conn:                c,
 		status:              kConnStatus_None,
-		connId:              0,
+		connID:              0,
 		sendMsgQueue:        make(chan *sendTask, sendBufferSize),
 		sendTimeoutSec:      kConnConf_DefaultSendTimeoutSec,
 		maxReadBufferLength: kConnConf_MaxReadBufferLength,
@@ -101,9 +101,9 @@ func (c *Connection) init() {
 	c.remoteAddr = c.conn.RemoteAddr().String()
 }
 
-//	directly close, packages in queue will not be sent
+// Directly close, packages in queue will not be sent
 func (c *Connection) close() {
-	//	set the disconnected status, use atomic operation to avoid close twice
+	// Set the disconnected status, use atomic operation to avoid close twice
 	if atomic.CompareAndSwapInt32(&c.status, kConnStatus_Connected, kConnStatus_Disconnected) {
 		c.conn.Close()
 	}
@@ -118,11 +118,11 @@ func (c *Connection) Close() {
 	select {
 	case c.sendMsgQueue <- nil:
 		{
-			//	nothing
+			// Nothing
 		}
 	case <-time.After(time.Duration(c.sendTimeoutSec) * time.Second):
 		{
-			//	timeout, close the connection
+			// Timeout, close the connection
 			c.close()
 		}
 	}
@@ -131,7 +131,7 @@ func (c *Connection) Close() {
 	atomic.StoreInt32(&c.disableSend, 1)
 }
 
-//	When don't need conection to send any thing, free it, DO NOT call it on multi routines
+// Free the connection. When don't need conection to send any thing, free it, DO NOT call it on multi routines
 func (c *Connection) Free() {
 	if nil != c.sendMsgQueue {
 		close(c.sendMsgQueue)
@@ -148,7 +148,7 @@ func (c *Connection) syncExecuteEvent(evt *ConnEvent) bool {
 }
 
 func (c *Connection) pushEvent(et int, d []byte) {
-	//	this is for sync execute
+	// This is for sync execute
 	evt := newConnEvent(et, c, d)
 	if c.syncExecuteEvent(evt) {
 		return
@@ -192,12 +192,12 @@ func (c *Connection) setStatus(stat int) {
 
 // GetConnId get the connection's id
 func (c *Connection) GetConnId() int {
-	return c.connId
+	return c.connID
 }
 
 // SetConnId set the connection's id
 func (c *Connection) SetConnId(id int) {
-	c.connId = id
+	c.connID = id
 }
 
 // GetConn get the raw net.Conn interface
@@ -220,7 +220,7 @@ func (c *Connection) SetReadTimeoutSec(sec int) {
 	c.readTimeoutSec = sec
 }
 
-//  GetReadTimeoutSec get the read deadline for the connection
+// GetReadTimeoutSec get the read deadline for the connection
 func (c *Connection) GetReadTimeoutSec() int {
 	return c.readTimeoutSec
 }
@@ -260,11 +260,11 @@ func (c *Connection) sendRaw(task *sendTask) error {
 	select {
 	case c.sendMsgQueue <- task:
 		{
-			//	nothing
+			// Nothing
 		}
 	case <-time.After(time.Duration(c.sendTimeoutSec) * time.Second):
 		{
-			//	timeout, close the connection
+			// Timeout, close the connection
 			logError("Send to peer %s timeout, close connection", c.GetRemoteAddress())
 			c.close()
 			return ErrConnSendTimeout
@@ -274,19 +274,19 @@ func (c *Connection) sendRaw(task *sendTask) error {
 	return nil
 }
 
-// ApplyReadDealine
+// ApplyReadDeadline set the read deadline seconds
 func (c *Connection) ApplyReadDeadline() {
 	if 0 != c.readTimeoutSec {
 		c.conn.SetReadDeadline(time.Now().Add(time.Duration(c.readTimeoutSec) * time.Second))
 	}
 }
 
-// ResetReadDeadline
+// ResetReadDeadline reset the read deadline
 func (c *Connection) ResetReadDeadline() {
 	c.conn.SetReadDeadline(time.Time{})
 }
 
-// Send the buffer
+// Send the buffer with KConnFlag flag
 func (c *Connection) Send(msg []byte, f int64) error {
 	task := &sendTask{
 		data: msg,
@@ -294,7 +294,7 @@ func (c *Connection) Send(msg []byte, f int64) error {
 	}
 	buf := msg
 
-	//	copy send buffer
+	// Copy send buffer is KConnFlag_CopySendBuffer flag is set
 	if 0 != f&KConnFlag_CopySendBuffer {
 		msgCopy := make([]byte, len(msg))
 		copy(msgCopy, msg)
@@ -323,14 +323,14 @@ func (c *Connection) SendPb(pb proto.Message, f int64) error {
 	return c.sendRaw(&task)
 }
 
-//	run a routine to process the connection
+// Run a routine to process the connection
 func (c *Connection) run() {
 	go c.routineMain()
 }
 
 func (c *Connection) routineMain() {
 	defer func() {
-		//	routine end
+		// Routine end
 		e := recover()
 		if e != nil {
 			logFatal("Read routine panic %v, stack:", e)
@@ -338,14 +338,14 @@ func (c *Connection) routineMain() {
 			logFatal(string(stackInfo))
 		}
 
-		//	close the connection
+		// Close the connection
 		logWarn("Read routine %s closed", c.GetRemoteAddress())
 		c.close()
 
-		//	free channel
-		//	FIXED : consumers need free it, not producer
+		// Free channel
+		// FIXED : consumers need free it, not producer
 
-		//	post event
+		// Post disconnected event
 		c.pushEvent(KConnEvent_Disconnected, nil)
 	}()
 
@@ -355,7 +355,7 @@ func (c *Connection) routineMain() {
 	}
 	c.streamProtocol.Init()
 
-	//	connected
+	// Push connected event
 	c.pushEvent(KConnEvent_Connected, nil)
 	atomic.StoreInt32(&c.status, kConnStatus_Connected)
 
@@ -387,7 +387,7 @@ func (c *Connection) routineSend() error {
 		case evt, ok := <-c.sendMsgQueue:
 			{
 				if !ok {
-					//	channel closed, quit
+					// Channel closed, quit
 					return nil
 				}
 
@@ -396,10 +396,11 @@ func (c *Connection) routineSend() error {
 					return nil
 				}
 
+				// Append header data only when KConnFlag_NoHeader is not set
 				if 0 == evt.flag&KConnFlag_NoHeader {
 					headerBytes := c.streamProtocol.SerializeHeader(evt.data)
 					if nil != headerBytes {
-						//	write header first
+						// Write header first
 						if len(headerBytes) != 0 {
 							_, err = c.conn.Write(headerBytes)
 							if err != nil {
@@ -407,7 +408,7 @@ func (c *Connection) routineSend() error {
 							}
 						}
 					} else {
-						//	invalid packet
+						// Invalid packet
 						panic("Failed to serialize header")
 						break
 					}
@@ -444,9 +445,9 @@ func (c *Connection) routineRead() error {
 			continue
 		}
 
-		//	only push event when the connection is connected
+		// Only push event when the connection is connected
 		if atomic.LoadInt32(&c.status) == kConnStatus_Connected {
-			//	try to unserialize to pb. do it in each routine to reduce the pressure of worker routine
+			// Try to unserialize to pb. do it in each routine to reduce the pressure of worker routine
 			pb := unserializePb(msg)
 			if nil != pb {
 				c.pushPbEvent(pb)
@@ -461,7 +462,7 @@ func (c *Connection) routineRead() error {
 
 func (c *Connection) unpack(buf []byte) ([]byte, error) {
 	var err error
-	//	read head
+	// Read head
 	c.ApplyReadDeadline()
 	headerLength := int(c.streamProtocol.GetHeaderLength())
 	if headerLength > len(buf) {
@@ -472,7 +473,7 @@ func (c *Connection) unpack(buf []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	//	check length
+	// Check length
 	packetLength := c.streamProtocol.UnserializeHeader(headBuf)
 	if packetLength > uint32(c.maxReadBufferLength) ||
 		packetLength < c.streamProtocol.GetHeaderLength() {
@@ -484,14 +485,14 @@ func (c *Connection) unpack(buf []byte) ([]byte, error) {
 		return nil, nil
 	}
 
-	//	read body
+	// Read body
 	c.ApplyReadDeadline()
 	bodyLength := packetLength - c.streamProtocol.GetHeaderLength()
 	if _, err = io.ReadFull(c.conn, buf[:bodyLength]); nil != err {
 		return nil, err
 	}
 
-	//	ok
+	// OK
 	msg := make([]byte, bodyLength)
 	copy(msg, buf[:bodyLength])
 	c.ResetReadDeadline()
