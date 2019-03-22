@@ -52,17 +52,23 @@ func (t *TCPNetwork) Push(evt *ConnEvent) {
 	}
 
 	//	push timeout
-	select {
-	case t.eventQueue <- evt:
-		{
-
-		}
-	case <-time.After(time.Second * 5):
-		{
-			evt.Conn.close()
+	for {
+		select {
+		case t.eventQueue <- evt:
+			{
+				return
+			}
+		case <-time.After(time.Second * 5):
+			{
+				if evt.EventType == KConnEvent_Disconnected {
+					// Disconnected message shouldn't be discarded
+					continue
+				}
+				evt.Conn.close()
+				return
+			}
 		}
 	}
-
 }
 
 // Pop the event in event queue
